@@ -38,11 +38,13 @@ class TwitterTransformer(BiGCNRumorDetecV2):
         preds = F.softmax(logits / temperature, dim=1)
         epsilon = torch.ones_like(preds) * (1e-8)
         preds = (preds - epsilon).abs()
+#         print("domain preds:",preds)
 #         print("batch[-1]:",batch[-1])
         if labels is None:
             labels = batch[-1].to(preds.device)
         else:
             labels = labels.to(preds.device)
+#         print("domain labels:",labels)
         if labels.dim() == 2:
             loss, acc = self.expandCrossEntropy(preds, labels, label_weight, reduction)
         elif labels.dim() == 1:
@@ -80,9 +82,11 @@ class TwitterTransformer(BiGCNRumorDetecV2):
 
         preds = self.predict(batch, temperature=temperature)
         # 检查是否有可用的GPU
+#         print("preds:",preds)
         epsilon = torch.ones_like(preds) * 1e-8
         preds = (preds - epsilon).abs()  # to avoid the prediction [1.0, 0.0], which leads to the 'nan' value in log operation
         labels = batch[-2].to(preds.device)
+#         print("labels:",labels)
         loss, acc = self.loss_func(preds, labels, label_weight=label_weight, reduction=reduction)
         return loss, acc
     
@@ -105,7 +109,7 @@ class TwitterTransformer(BiGCNRumorDetecV2):
     
     def loss_func(self, preds: torch.Tensor, labels: torch.Tensor, label_weight=None, reduction='none'):
         # print("preds.shape",preds.shape)
-        # print("labels.shape", labels.shape)
+#         print("labels.dim", labels.dim())
         if labels.dim() == 3:
             loss, acc = self.expandCrossEntropy(preds, labels, label_weight, reduction)
         elif labels.dim() == 2:
@@ -441,6 +445,7 @@ class DANNTrainer(BaseTrainer):
         return tfidf_arr, num_nodes, A_TD, A_BU, \
             torch.tensor(labels), torch.tensor(topic_labels)
 
+
     def PreTrainDomainClassifier(self, trModel: nn.Module, discriminator: nn.Module,
                                  labeledSource: CustomDataset, labeledTarget: CustomDataset,
                                  unlabeledTarget: CustomDataset, maxEpoch, learning_rate=5e-3):
@@ -454,13 +459,14 @@ class DANNTrainer(BaseTrainer):
         for epoch in range(maxEpoch):
             maxIters, trainLoader = DataIter(labeledSource, unlabeledTarget, labeledTarget, self.batch_size)
             for step, (_, batch2) in enumerate(trainLoader()):
-#                 print("batch2[-1]",batch2[-1])
+#                 print("labels",batch2[-1])
                 with torch.no_grad():
                     vecs = trModel.Batch2Vecs(batch2)
                 logits = discriminator(vecs)
                 DLoss = F.cross_entropy(logits, batch2[-1])
                 probs = discriminator(vecs).softmax(dim=1) #此处的概率是判断属于哪个域
                 predicted_labels = probs.argmax(dim=1)
+#                 print("predicted_labels:",predicted_labels)
                 DAcc = (predicted_labels == batch2[-1]).float().mean().item()
 #                 DLoss, DAcc = trModel.discriminatorLoss(discriminator, batch2, grad_reverse=False)
                 optim.zero_grad()
@@ -541,7 +547,7 @@ class DANNTrainer(BaseTrainer):
             for step, (batch1, batch2) in enumerate(trainLoader()):
                 optim.zero_grad()
                 for da_idx in range(D_Step):
-                    DLoss, DAcc = trModel.advLossAndAcc(discriminator, batch2)
+                    DLoss, DAcc = trModel.AdvDLossAndAcc(discriminator, batch2)
                     optim.zero_grad()
                     (self.Lambda * DLoss).backward()
                     optim.step()
@@ -669,7 +675,7 @@ if __name__ == '__main__':
     source_domain.initGraph()
     
     trainer = DANNTrainer(random_seed = 10086, log_dir = logDir, suffix = f"{test_event_name}_FS{fewShotCnt}", model_file = f"../../../autodl-tmp/pkl/DANN_{test_event_name}_FS{fewShotCnt}.pkl", class_num = 2, temperature=0.05,
-                 learning_rate=5e-3, batch_size=32, Lambda=0.1)
+                 learning_rate=3e-5, batch_size=32, Lambda=0.1)
     
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
@@ -677,7 +683,7 @@ if __name__ == '__main__':
                                         model_device = model_device,
                                         learningRate=5e-5,
                                         domain_num=5)
-    trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 3, learning_rate = 5e-3)
+    trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 3, learning_rate = 3e-5)
     
     trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 10,test_label=test_set.labelTensor())
     

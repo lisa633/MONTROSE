@@ -644,7 +644,7 @@ class GpDANNTrainer(DANNTrainer):
 
             
 if __name__ == '__main__':
-    data_dir1 = r"../pheme-rnr-dataset/"
+    data_dir1 = r"../../../autodl-tmp/data/pheme-rnr-dataset/"
     # os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
@@ -662,13 +662,13 @@ if __name__ == '__main__':
         source_events, target_events, fewShotCnt, unlabeled_ratio=0.3
     )
     
-    logDir = f"./{test_event_name}/"
+    logDir = f"../../../autodl-tmp/log/DANN/{test_event_name}/"
     
-    bertPath = r"../../bert_en"
+    bertPath = r"../../../autodl-tmp/bert_en"
     model = obtain_Transformer(bertPath)
     source_domain.initGraph()
     
-    trainer = DANNTrainer(random_seed = 10086, log_dir = logDir, suffix = f"{test_event_name}_FS{fewShotCnt}", model_file = f"./DANN_{test_event_name}_FS{fewShotCnt}.pkl", class_num = 2, temperature=0.05,
+    trainer = DANNTrainer(random_seed = 10086, log_dir = logDir, suffix = f"{test_event_name}_FS{fewShotCnt}", model_file = f"../../../autodl-tmp/pkl/DANN_{test_event_name}_FS{fewShotCnt}.pkl", class_num = 2, temperature=0.05,
                  learning_rate=5e-3, batch_size=32, Lambda=0.1)
     
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)

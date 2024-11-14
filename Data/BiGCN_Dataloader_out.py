@@ -185,7 +185,6 @@ class MetaMCMCDataset(FastBiGCNDataset):
         return self.instance_weights
 
     def load_data_fast(self, data_prefix="../data/train", min_len=-1):
-        print("load_data_fast:",data_prefix)
 
         super().load_data_fast(data_prefix)
         self.instance_weights = torch.ones([len(self.data_ID)], dtype=torch.float32, device=torch.device('cuda'))
@@ -631,27 +630,15 @@ def Merge_data(data_set1, data_set2):
 def load_events(events_list: List):
     data_list = []
     for event_dir in events_list:
-        if event_dir.split("/")[-1] == "twitter15":
+        if event_dir.split("/")[-1] == "twitter15" :
             dataset = Twitter15()
-            try:
-                dataset.load_data_fast(event_dir)
-            except:  # if no caches
-                dataset.load_data(event_dir)
-                dataset.Caches_Data(event_dir)
+            dataset.load_data(event_dir)
         elif event_dir.split("/")[-1] == "twitter16":
             dataset = Twitter16()
-            try:
-                dataset.load_data_fast(event_dir)
-            except:  # if no caches
-                dataset.load_data(event_dir)
-                dataset.Caches_Data(event_dir)
+            dataset.load_data(event_dir)
         else:
             dataset = MetaMCMCDataset()
-            try:
-                dataset.load_data_fast(event_dir)
-            except:  # if no caches
-                dataset.load_event_list([event_dir])
-                dataset.Caches_Data(event_dir)
+            dataset.load_event_list([event_dir])
         data_list.append(dataset)
 
     if len(data_list) > 1:

@@ -185,10 +185,13 @@ class MetaMCMCDataset(FastBiGCNDataset):
     def get_instance_weights(self):
         return self.instance_weights
 
-    def load_data_fast(self, data_prefix="../data/train", min_len=-1):
+    def load_data_fast(self, data_prefix="~/autodl-tmp/data", min_len=-1):
 
         super().load_data_fast(data_prefix)
         self.instance_weights = torch.ones([len(self.data_ID)], dtype=torch.float32, device=torch.device('cuda'))
+        self._confidence = torch.ones(len(self.data_ID),device=torch.device('cuda'))
+        self._entrophy = torch.zeros(len(self.data_ID),device=torch.device('cuda'))
+        self.read_indexs = np.arange(len(self.data_ID))
 
     def split(self, percent=[0.5, 1.0]):
         data_size = len(self.data_ID)
@@ -651,17 +654,25 @@ def load_events(events_list: List):
     for event_dir in events_list:
         if event_dir.split("/")[-1] == "twitter15":
             dataset = Twitter15()
-            # if no caches
-            dataset.load_data(event_dir)
-#             dataset.Caches_Data(event_dir)
+            try:
+                dataset.load_data_fast(event_dir)
+            except:  # if no caches
+                dataset.load_data(event_dir)
+                dataset.Caches_Data(event_dir)
         elif event_dir.split("/")[-1] == "twitter16":
             dataset = Twitter16()
-            dataset.load_data(event_dir)
-#                 dataset.Caches_Data(event_dir)
+            try:
+                dataset.load_data_fast(event_dir)
+            except:  # if no caches
+                dataset.load_data(event_dir)
+                dataset.Caches_Data(event_dir)
         else:
             dataset = MetaMCMCDataset()
-            dataset.load_event_list([event_dir])
-#                 dataset.Caches_Data(event_dir)
+            try:
+                dataset.load_data_fast(event_dir)
+            except:  # if no caches
+                dataset.load_event_list([event_dir])
+                dataset.Caches_Data(event_dir)
         data_list.append(dataset)
 
     if len(data_list) > 1:

@@ -334,7 +334,6 @@ class TwitterLoader(RumorLoader):
 
     def load_event_list(self, event_list):
         for event_path in event_list:
-            print(event_path)
             self.scan_dir(event_path)
 
         self.read_json_files(self.files)

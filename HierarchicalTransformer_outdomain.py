@@ -1490,6 +1490,7 @@ if __name__ == '__main__':
     source_events = []
     target_events = []
     for idx,dname in enumerate(events_list):
+        print(dname)
         if idx != domain_ID:
             if dname == "twitter15" or dname == "twitter16":
                 source_events.append(os.path.join(data_dir2, dname))

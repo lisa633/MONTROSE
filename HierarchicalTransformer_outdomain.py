@@ -1495,12 +1495,14 @@ if __name__ == '__main__':
                 source_events.append(os.path.join(data_dir2, dname))
             else:
                 source_events = [os.path.join(data_dir1, dname)]
+    print("source_events",source_events)
     for idx, dname in enumerate(events_list):
         if idx == domain_ID:
             if dname=="twitter15" or dname=="twitter16":
                 target_events.append(os.path.join(data_dir2, dname))
             else:
                 target_events.append(os.path.join(data_dir1, dname))
+    print("target_events",target_events)
     
     test_event_name = events_list[domain_ID]
     #train_set, labeled_target, val_set, test_set, unlabeled_target

@@ -333,6 +333,7 @@ class TwitterLoader(RumorLoader):
         self.dataclear()
 
     def load_event_list(self, event_list):
+        print("here!")
         for event_path in event_list:
             self.scan_dir(event_path)
 

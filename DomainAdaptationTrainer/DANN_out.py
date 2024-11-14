@@ -644,8 +644,8 @@ class GpDANNTrainer(DANNTrainer):
 
             
 if __name__ == '__main__':
-    data_dir1 = r"../pheme-rnr-dataset/"
-    data_dir2 = r"../t1516/"
+    data_dir1 = r"../../../autodl-tmp/data/pheme-rnr-dataset/"
+    data_dir2 = r"../../../autodl-tmp/data/t1516/"
     os.environ['CUDA_VISIBLE_DEVICES'] = "0,1" 
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege','twitter15','twitter16']
@@ -673,14 +673,14 @@ if __name__ == '__main__':
         source_events, target_events, fewShotCnt, unlabeled_ratio=0.3
     )
     
-    logDir = f"./{test_event_name}/"
+    logDir = f"../../../autodl-tmp/log/{test_event_name}/"
     
-    bertPath = r"../../bert_en"
+    bertPath = r"../../../autodl-tmp/bert_en"
     model = obtain_Transformer(bertPath)
     source_domain.initGraph()
     
-    trainer = DANNTrainer(random_seed = 10086, log_dir = logDir, suffix = f"{test_event_name}_FS{fewShotCnt}", model_file = f"./DANN_{test_event_name}_FS{fewShotCnt}.pkl", class_num = 2, temperature=0.05,
-                 learning_rate=5e-3, batch_size=32, Lambda=0.1)
+    trainer = DANNTrainer(random_seed = 10086, log_dir = logDir, suffix = f"{test_event_name}_FS{fewShotCnt}", model_file = f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS{fewShotCnt}.pkl", class_num = 2, temperature=0.05,
+                 learning_rate=3e-6, batch_size=32, Lambda=0.1)
     
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
@@ -688,7 +688,7 @@ if __name__ == '__main__':
                                         model_device = model_device,
                                         learningRate=5e-5,
                                         domain_num=7)
-    trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 3, learning_rate = 5e-3)
+    trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 3, learning_rate = 3e-6)
     
     trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 10,test_label=test_set.labelTensor())
     

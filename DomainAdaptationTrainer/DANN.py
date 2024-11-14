@@ -675,7 +675,7 @@ if __name__ == '__main__':
     source_domain.initGraph()
     
     trainer = DANNTrainer(random_seed = 10086, log_dir = logDir, suffix = f"{test_event_name}_FS{fewShotCnt}", model_file = f"../../../autodl-tmp/pkl/DANN_{test_event_name}_FS{fewShotCnt}.pkl", class_num = 2, temperature=0.05,
-                 learning_rate=3e-5, batch_size=32, Lambda=0.1)
+                 learning_rate=3e-6, batch_size=32, Lambda=0.1)
     
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
@@ -683,7 +683,7 @@ if __name__ == '__main__':
                                         model_device = model_device,
                                         learningRate=5e-5,
                                         domain_num=5)
-    trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 3, learning_rate = 3e-5)
+    trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 3, learning_rate = 3e-6)
     
     trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 10,test_label=test_set.labelTensor())
     

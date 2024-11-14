@@ -233,6 +233,7 @@ class TwitterLoader(RumorLoader):
         self.scan_dir(path)
 
     def scan_dir(self, dir_name):
+        print("scan_dir!")
         for item in os.walk(dir_name):
             print("item:",item)
             if len(item[2]) == 0:

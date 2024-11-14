@@ -185,6 +185,7 @@ class MetaMCMCDataset(FastBiGCNDataset):
         return self.instance_weights
 
     def load_data_fast(self, data_prefix="../data/train", min_len=-1):
+        print("load_data_fast:",data_prefix)
 
         super().load_data_fast(data_prefix)
         self.instance_weights = torch.ones([len(self.data_ID)], dtype=torch.float32, device=torch.device('cuda'))
@@ -426,6 +427,9 @@ class Twitter15(MetaMCMCDataset):
         data_prefix=data_prefix+"_out"
         super().load_data_fast(data_prefix)
         self.instance_weights = torch.ones([len(self.data_ID)], dtype=torch.float32, device=torch.device('cuda:0'))
+        self._confidence = torch.ones(len(self.data_ID),device=torch.device('cuda'))
+        self._entrophy = torch.zeros(len(self.data_ID),device=torch.device('cuda'))
+        self.read_indexs = np.arange(len(self.data_ID))
 
 
 class Twitter16(MetaMCMCDataset):
@@ -523,6 +527,9 @@ class Twitter16(MetaMCMCDataset):
         data_prefix=data_prefix+"_out"
         super().load_data_fast(data_prefix)
         self.instance_weights = torch.ones([len(self.data_ID)], dtype=torch.float32, device=torch.device('cuda:0'))
+        self._confidence = torch.ones(len(self.data_ID),device=torch.device('cuda'))
+        self._entrophy = torch.zeros(len(self.data_ID),device=torch.device('cuda'))
+        self.read_indexs = np.arange(len(self.data_ID))
 
 
 class FastTwitterDataset(BiGCNTwitterSet, CustomDataset):

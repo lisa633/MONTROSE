@@ -233,12 +233,7 @@ class TwitterLoader(RumorLoader):
         self.scan_dir(path)
 
     def scan_dir(self, dir_name):
-        print("scan_dir!")
-        print("dir_name:", dir_name)
-        print("walk:",os.walk(dir_name))
         for item in os.walk(dir_name):
-            print("111!")
-            print("item:",item)
             if len(item[2]) == 0:
                 # no file in this dir
                 pass
@@ -338,9 +333,7 @@ class TwitterLoader(RumorLoader):
         self.dataclear()
 
     def load_event_list(self, event_list):
-        print("here!")
         for event_path in event_list:
-            print(event_path)
             self.scan_dir(event_path)
 
         self.read_json_files(self.files)

@@ -235,7 +235,9 @@ class TwitterLoader(RumorLoader):
     def scan_dir(self, dir_name):
         print("scan_dir!")
         print("dir_name:", dir_name)
+        print("walk:",os.walk(dir_name))
         for item in os.walk(dir_name):
+            print("111!")
             print("item:",item)
             if len(item[2]) == 0:
                 # no file in this dir

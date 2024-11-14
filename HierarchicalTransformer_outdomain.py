@@ -1479,7 +1479,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
             self.iterate += 1
 
 if __name__ == '__main__':
-    data_dir1 = r"~/autodl-tmp/data/pheme-rnr-dataset/"
+    data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
     data_dir2 = r"~/autodl-tmp/data/t1516/"
     os.environ['CUDA_VISIBLE_DEVICES'] = "0,1" 
 

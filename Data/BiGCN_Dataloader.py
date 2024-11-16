@@ -667,6 +667,7 @@ def load_events(events_list: List):
                 dataset.load_data(event_dir)
                 dataset.Caches_Data(event_dir)
         else:
+            print("here!")
             dataset = MetaMCMCDataset()
             try:
                 dataset.load_data_fast(event_dir)
@@ -785,11 +786,11 @@ def load_events(events_list: List):
     data_list = []
     for event_dir in events_list:
         dataset = MetaMCMCDataset()
-#         try:
-#             dataset.load_data_fast(event_dir)
-#         except:  # if no caches
-        dataset.load_event_list([event_dir])
-#             dataset.Caches_Data(event_dir)
+        try:
+            dataset.load_data_fast(event_dir)
+        except:  # if no caches
+            dataset.load_event_list([event_dir])
+            dataset.Caches_Data(event_dir)
         data_list.append(dataset)
 
     if len(data_list) > 1:

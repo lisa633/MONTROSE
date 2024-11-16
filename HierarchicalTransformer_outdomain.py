@@ -1418,22 +1418,36 @@ class DgMSTF_Trainer(MetaLearningFramework):
                 domain_train_losses.append(domain_train_loss/count)
                 task_train_losses.append(task_train_loss/count)
         
-        print("domain_loss:",domain_train_losses)
-        print("task_loss:",task_train_losses)
-        figure_name = f"./Model_Loss_{epoch}.png"
+        # print("domain_loss:",domain_train_losses)
+        # print("task_loss:",task_train_losses)
+        # figure_name = f"./Model_Loss_{epoch}.png"
             
-        plt.plot(np.arange(len(domain_train_losses)), domain_train_losses,label="domain train loss")
+        # plt.plot(np.arange(len(domain_train_losses)), domain_train_losses,label="domain train loss")
 
-        plt.plot(np.arange(len(task_train_losses)), task_train_losses, label="task train loss")
+        # plt.plot(np.arange(len(task_train_losses)), task_train_losses, label="task train loss")
 
-        plt.legend() #显示图例
-        plt.xlabel('epoches')
-        #plt.ylabel("epoch")
-        plt.title('Model Loss')
-        plt.show()
-        plt.savefig(figure_name)
+        # plt.legend() #显示图例
+        # plt.xlabel('epoches')
+        # #plt.ylabel("epoch")
+        # plt.title('Model Loss')
+        # plt.show()
+        # plt.savefig(figure_name)
+        
+    def PateroPrint(self, model:TwitterTransformer, testset:MetaMCMCDataset):
+        domain_acc_li = []
+        task_acc_li = []
+        for batch in DANN_Dataloader([testset], batch_size=self.max_batch_size):
+            vecs = model.Batch2Vecs(batch)
+            probs = self.domain_discriminator(vecs).softmax(dim=1)
+            predicted_labels = probs.argmax(dim=1)
+            domain_acc = (predicted_labels == batch[-1]).float().mean().item()
+            domain_acc_li.append(domain_acc)
+            _, acc = model.lossAndAcc(batch)
+            task_acc_li.append(acc)
+
+        print("domain_acc:",domain_acc_li)
+        print("task_acc:",task_acc_li)
             
-    
     
     #model1,unlabeled target
     def PseudoLabeling(self, model, dataset:PseudoDataset, temperature = 1.0):
@@ -1465,16 +1479,8 @@ class DgMSTF_Trainer(MetaLearningFramework):
             self.Selection(unlabeled_target)
             self.ModelRetraining(model, source_domain, unlabeled_target, test_set.labelTensor().argmax(dim=1), dev_eval, test_eval, 
                                  max_epoch=self.inner_epochs)
-            model.valid(test_set, test_set.labelTensor(), suffix=f"{self.marker}_test")
-            domain_acc_li = []
-            for batch in DANN_Dataloader([test_set], batch_size=self.max_batch_size):
-                vecs = model.Batch2Vecs(batch)
-                probs = self.domain_discriminator(vecs).softmax(dim=1)
-                predicted_labels = probs.argmax(dim=1)
-                domain_acc = (predicted_labels == batch[-1]).float().mean().item()
-                domain_acc_li.append(domain_acc)
-            final_domain_acc = sum(domain_acc_li) / len(domain_acc_li)
-            print("ST_INFO: iterate:{}, domain_acc: {}".format(self.iterate,final_domain_acc))
+            model.valid(discriminator, test_set, test_set.labelTensor(), suffix=f"{self.marker}_test")
+            self.PateroPrint(model, test_set)
             
             self.iterate += 1
 

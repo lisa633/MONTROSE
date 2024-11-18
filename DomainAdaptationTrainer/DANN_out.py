@@ -289,6 +289,22 @@ class SentBert(nn.Module):
 
     def load_model(self, pretrained_file):
         self.model.module.load_state_dict(torch.load(pretrained_file))
+        
+@background(max_prefetch=5)
+def DANN_Dataloader(dataset:MetaMCMCDataset, batch_size=32):
+
+
+    indexs_souce = [random.sample(range(len(domain)), len(domain)) for domain in dataset]
+    
+    
+    bs_domain = batch_size//(len(dataset))#16 在两个领域上平均分配batch
+    max_iters = max([len(domain)//bs_domain for domain in dataset])#max_iters = 371
+    for iteration in range(max_iters):
+        start = iteration*bs_domain
+        items = [domain[indexs_souce[d_idx][idx%len(domain)]] \
+                    for d_idx, domain in enumerate(dataset) \
+                        for idx in range(start, start+bs_domain)]
+        yield dataset[0].collate_fn(items)
 
 
 def Generator1(labeledSource, unlabeledTarget, labeledTarget, batchSize):
@@ -569,78 +585,21 @@ class DANNTrainer(BaseTrainer):
                         self.valid(trModel, testSet, testSet.labelTensor(), suffix=f"Test_{self.suffix}")
     
 
-class GpDANNTrainer(DANNTrainer):
-    def GpDaNNTrain(self, trModel: AdversarialModel, discriminator: nn.Module, labeledSource: CustomDataset,
-                    unlabeledTarget: CustomDataset, maxEpoch,learning_rate=2e-5):
-        assert hasattr(trModel, "AdvDLossAndAcc")
-        paras = trModel.grouped_parameters(learning_rate) + \
-                [{"params": discriminator.parameters(), "lr": learning_rate}]
-        base_optimizer = torch.optim.SGD
-        optim = SAM(paras, base_optimizer, lr=learning_rate, momentum=0.9)
+    def PateroPrint(self, model:TwitterTransformer, testset:MetaMCMCDataset):
+        domain_acc_li = []
+        task_acc_li = []
+        for batch in DANN_Dataloader([testset], batch_size=20):
+            vecs = model.Batch2Vecs(batch)
+            probs = discriminator(vecs).softmax(dim=1)
+            predicted_labels = probs.argmax(dim=1)
+            domain_acc = (predicted_labels == batch[-1]).float().mean().item()
+            domain_acc_li.append(domain_acc)
+            _, acc = model.lossAndAcc(batch)
+            task_acc_li.append(acc)
 
-        for epoch in range(maxEpoch):
-            maxIters, trainLoader = Generator3(labeledSource, unlabeledTarget, self.batch_size)
-            for step, batch in enumerate(trainLoader()):
-                loss, acc = trModel.AdvDLossAndAcc(discriminator, batch)
-                loss.backward()
-                optim.first_step(zero_grad=True)
-                loss, acc = trModel.AdvDLossAndAcc(discriminator, batch)
-                loss.backward()
-                optim.second_step(zero_grad=True)
-                print('####Model Update (%3d | %3d) %3d | %3d #### DLoss/DAcc = %6.8f/%6.8f' % (
-                    step, maxIters, epoch, maxEpoch, loss.data.item(), acc
-                ))
-            torch.save(trModel.state_dict(), self.model_file[:-4]+"_GpDaNNTrain.pkl")
-    def TaskTrain(self, trModel: AdversarialModel, labeledSource: CustomDataset, labeledTarget: CustomDataset,
-                  validSet: CustomDataset, testSet: CustomDataset, maxEpoch,learning_rate=2e-5, validEvery=20, test_label=None):
-        print("labeled Source/labeled Target: {}/{}".format(
-            len(labeledSource),
-            len(labeledTarget) if labeledTarget is not None else 0,
-        )
-        )
-        optim = trModel.obtain_optim(learning_rate)
+        print("domain_acc:",domain_acc_li)
+        print("task_acc:",task_acc_li)
 
-        for epoch in range(maxEpoch):
-            maxIters, trainLoader = Generator3(labeledSource, labeledTarget, self.batch_size)
-            for step, (batch1) in enumerate(trainLoader()):
-                loss, acc = trModel.lossAndAcc(batch1, temperature=self.temperature)
-                optim.zero_grad()
-                loss.backward()
-                optim.step()
-                torch.cuda.empty_cache()
-                print('####Model Update (%3d | %3d) %3d | %3d ####, loss/acc = %6.8f/%6.8f' % (
-                    step, maxIters, epoch, maxEpoch, loss.data.item(), acc
-                ))
-                if (step + 1) % validEvery == 0:
-                    acc_v = self.valid(trModel, validSet, validSet.labelTensor(), suffix=f"Valid_{self.suffix}")
-                    if acc_v > self.best_valid_acc:
-                        torch.save(trModel.state_dict(), self.model_file)
-                        self.best_valid_acc = acc_v
-                        self.valid(
-                            trModel, testSet, testSet.labelTensor() if test_label is None else test_label,
-                            suffix=f"BestTest_{self.suffix}"
-                        )
-                    else:
-                        self.valid(
-                            trModel, testSet, testSet.labelTensor() if test_label is None else test_label,
-                            suffix=f"Test_{self.suffix}"
-                        )
-
-    def ModelTrain(self, trModel: AdversarialModel, discriminator: nn.Module,
-                   labeledSource: CustomDataset, labeledTarget: CustomDataset,
-                   unlabeledTarget: CustomDataset, validSet: CustomDataset,
-                   testSet: CustomDataset, maxEpoch, validEvery=20, test_label=None):
-        print("labeled Source/labeled Target/unlabeled Target: {}/{}/{}".format(len(labeledSource),
-                                                                                len(labeledTarget) if labeledTarget is not None else 0,
-                                                                                len(unlabeledTarget)))
-
-        # self.GpDaNNTrain(trModel, discriminator, labeledSource, unlabeledTarget, maxEpoch=10, learning_rate=5e-5)
-        # self.TaskTrain(trModel, labeledSource, labeledTarget, validSet, testSet, maxEpoch=10, learning_rate=2e-3,
-        #                validEvery=validEvery)
-        for alternate in range(maxEpoch):
-            self.GpDaNNTrain(trModel, discriminator, labeledSource, unlabeledTarget, maxEpoch=3, learning_rate=2e-5)
-            self.TaskTrain(trModel, labeledSource, labeledTarget, validSet, testSet, maxEpoch=3, learning_rate=2e-5,
-                           validEvery=validEvery, test_label=None)
 
             
 if __name__ == '__main__':
@@ -659,7 +618,7 @@ if __name__ == '__main__':
             if dname == "twitter15" or dname == "twitter16":
                 source_events.append(os.path.join(data_dir2, dname))
             else:
-                source_events = [os.path.join(data_dir1, dname)]
+                source_events.append(os.path.join(data_dir1, dname))
     for idx, dname in enumerate(events_list):
         if idx == domain_ID:
             if dname=="twitter15" or dname=="twitter16":
@@ -688,9 +647,12 @@ if __name__ == '__main__':
                                         model_device = model_device,
                                         learningRate=5e-5,
                                         domain_num=7)
+#     model.load_model(f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS{fewShotCnt}.pkl")
     trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 3, learning_rate = 3e-6)
     
     trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 10,test_label=test_set.labelTensor())
+
+    trainer.PateroPrint(model,test_set)
     
 
     

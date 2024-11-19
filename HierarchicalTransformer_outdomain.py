@@ -1234,7 +1234,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
     ### General Training Parameters ###
     lr4model=5e-5 # learning rate for updating the model's parameters
     device=torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-    max_batch_size=10
+    max_batch_size=8
     grad_accum_cnt = 1
     valid_every = 20
 
@@ -1599,7 +1599,7 @@ if __name__ == '__main__':
         else:
             model.save_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")    
 
-    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=7,class_num=2, temperature=0.05, learning_rate=2e-5, batch_size=12, epsilon_ball=5e-5,gStep=5, Lambda=0.1, D_lr=2e-4, valid_every=10, dStep=20) 
+    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=7,class_num=2, temperature=0.05, learning_rate=2e-5, batch_size=10, epsilon_ball=5e-5,gStep=5, Lambda=0.1, D_lr=2e-4, valid_every=10, dStep=20) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     # discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,

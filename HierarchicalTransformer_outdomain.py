@@ -1323,21 +1323,16 @@ class DgMSTF_Trainer(MetaLearningFramework):
             if step >= max_step:
                 break
 
-    def evaluateSmoothness(self, model: TwitterTransformer, source_domain: MetaMCMCDataset, pseudo_target: PseudoDataset, num_samples=100):
+    def evaluateSmoothness(self, model: TwitterTransformer, test_data: MetaMCMCDataset, num_samples=100):
 
         # 获取当前模型参数
         original_params = {name: param.data.clone() for name, param in model.named_parameters()}
         
         # 计算原始损失
         original_loss = 0.0
-        count = 0
-        for batch in DgMSTF_Loader([source_domain], pseudo_target,
-                                        batch_size=self.max_batch_size,
-                                        source_ratio=self.train_mix_ratio,
-                                        reshuffle=True):
+        for batch in DANN_Dataloader([test_data], batch_size=self.max_batch_size):
             original_loss += model.get_CrossEntropyLoss(batch).item()
-            count += 1
-        original_loss /= len(DgMSTF_Loader)
+        original_loss /= len(test_data)
         
         # 蒙特卡洛估计
         total_loss_diff = 0.0
@@ -1358,12 +1353,9 @@ class DgMSTF_Trainer(MetaLearningFramework):
             
             # 计算扰动后的损失
             perturbed_loss = 0.0
-            for batch in DgMSTF_Loader([source_domain], pseudo_target,
-                                        batch_size=self.max_batch_size,
-                                        source_ratio=self.train_mix_ratio,
-                                        reshuffle=True):
+            for batch in DANN_Dataloader([test_data], batch_size=self.max_batch_size):
                 perturbed_loss += model.get_CrossEntropyLoss(batch).item()
-            perturbed_loss /= count
+            perturbed_loss /= len(test_data)
             
             # 计算损失差
             loss_diff = abs(perturbed_loss - original_loss)
@@ -1532,13 +1524,12 @@ class DgMSTF_Trainer(MetaLearningFramework):
                         max_iterate=100):
         self.iterate = 0
         for iterate in range(max_iterate):
-            # self.PseudoLabeling(model, unlabeled_target)
-            # self.Selection(unlabeled_target)
-            # self.ModelRetraining(model, source_domain, unlabeled_target, test_set.labelTensor().argmax(dim=1), dev_eval, test_eval, 
-            #                      max_epoch=self.inner_epochs)
-            # model.valid(test_set, test_set.labelTensor(), suffix=f"{self.marker}_test")
-            # self.PateroPrint(model, test_set)
-            self.evaluateSmoothness(model,source_domain,unlabeled_target,num_samples=100)
+            self.PseudoLabeling(model, unlabeled_target)
+            self.Selection(unlabeled_target)
+            self.ModelRetraining(model, source_domain, unlabeled_target, test_set.labelTensor().argmax(dim=1), dev_eval, test_eval, 
+                                 max_epoch=self.inner_epochs)
+            model.valid(test_set, test_set.labelTensor(), suffix=f"{self.marker}_test")
+            self.PateroPrint(model, test_set)
             
             self.iterate += 1
 
@@ -1610,26 +1601,23 @@ if __name__ == '__main__':
     trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=7,class_num=2, temperature=0.05, learning_rate=2e-5, batch_size=12, epsilon_ball=5e-5,gStep=5, Lambda=0.1, D_lr=2e-4, valid_every=10, dStep=20) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
-                                        model_device = model_device,
-                                        learningRate=5e-5,
-                                        domain_num=7)
-    trainer.domain_discriminator = discriminator
-    print("being domain discriminate!")
-    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl"):
-        trainer.domain_discriminator.load_state_dict(
-            torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
-        )
-    else:
-        for epoch in range(3):
-            trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
-        torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
-    trainer.Training(model, source_domain, unlabeled_target, dev_eval, te_eval, max_iterate=100) 
-
-    # trainer.dataset2dataloader2(model, tr, shuffle=True, batch_size=32)
-    # trainer.meta_learning(model, train_set=tr, meta_dev=meta_dev, dev_eval=dev_eval, test_eval=te_eval, batch_size=32,
-    #                       grad_accum_cnt=1, valid_every=100,
-    #                       max_epochs=20, learning_rate=2e-5, model_lr=2e-5,
-    #                       model_file=os.path.join(log_dir, f'BiGCN_{test_event_name}.pkl'), weight_lr=0.1, meta_step=10)
+    # discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
+    #                                     model_device = model_device,
+    #                                     learningRate=5e-5,
+    #                                     domain_num=7)
+    # trainer.domain_discriminator = discriminator
+    # print("being domain discriminate!")
+    # if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl"):
+    #     trainer.domain_discriminator.load_state_dict(
+    #         torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
+    #     )
+    # else:
+    #     for epoch in range(3):
+    #         trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
+    #     torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
+    # trainer.Training(model, source_domain, unlabeled_target, dev_eval, te_eval, max_iterate=100) 
     
-    # trainer.validate_cpt(model,test_eval=te_eval)
+    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
+        model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")
+
+    trainer.evaluateSmoothness(model,test_set,num_samples=100)

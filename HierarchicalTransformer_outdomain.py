@@ -1234,7 +1234,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
     ### General Training Parameters ###
     lr4model=5e-5 # learning rate for updating the model's parameters
     device=torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-    max_batch_size=20
+    max_batch_size=10
     grad_accum_cnt = 1
     valid_every = 20
 
@@ -1332,6 +1332,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
         original_loss = 0.0
         for batch in DANN_Dataloader([test_data], batch_size=self.max_batch_size):
             original_loss += model.get_CrossEntropyLoss(batch).item()
+            print("original_loss:",original_loss)
         original_loss /= len(test_data)
         
         # 蒙特卡洛估计

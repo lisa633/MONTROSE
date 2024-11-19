@@ -1315,6 +1315,54 @@ class DgMSTF_Trainer(MetaLearningFramework):
             step += 1
             if step >= max_step:
                 break
+                
+    def evaluateSmoothness(self, model: TwitterTransformer, test_data: MetaMCMCDataset, num_samples=100):
+
+        # 获取当前模型参数
+        original_params = {name: param.data.clone() for name, param in model.named_parameters()}
+        
+        # 计算原始损失
+        original_loss = 0.0
+        for batch in DANN_Dataloader([test_data], batch_size=self.max_batch_size):
+            original_loss += model.get_CrossEntropyLoss(batch).item()
+            print("original_loss:",original_loss)
+        original_loss /= len(test_data)
+        
+        # 蒙特卡洛估计
+        total_loss_diff = 0.0
+        for _ in range(num_samples):
+            # 生成随机方向
+            random_direction = {name: torch.randn_like(param) for name, param in model.named_parameters()}
+            # 归一化方向向量
+            norm = torch.sqrt(sum((param ** 2).sum() for param in random_direction.values()))
+            for name in random_direction:
+                random_direction[name] /= norm
+            
+            # 移动到球面上的点
+            perturbed_params = {name: original_params[name] + self.epsilon_ball * random_direction[name] for name in original_params}
+            
+            # 将模型参数设置为扰动后的参数
+            for name, param in model.named_parameters():
+                param.data = perturbed_params[name]
+            
+            # 计算扰动后的损失
+            perturbed_loss = 0.0
+            for batch in DANN_Dataloader([test_data], batch_size=self.max_batch_size):
+                perturbed_loss += model.get_CrossEntropyLoss(batch).item()
+            perturbed_loss /= len(test_data)
+            
+            # 计算损失差
+            loss_diff = abs(perturbed_loss - original_loss)
+            total_loss_diff += loss_diff
+        
+        # 还原模型参数
+        for name, param in model.named_parameters():
+            param.data = original_params[name]
+        
+        # 计算损失变化的期望
+        expected_loss_diff = total_loss_diff / num_samples
+
+        print("average_train_loss_diff:",expected_loss_diff)
         
 
 
@@ -1482,22 +1530,21 @@ if __name__ == '__main__':
                                         model_device = model_device,
                                         learningRate=5e-5,
                                         domain_num=5)
-    trainer.domain_discriminator = discriminator
-    print("being domain discriminate!")
-    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl"):
-        trainer.domain_discriminator.load_state_dict(
-            torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
-        )
-    else:
-        for epoch in range(3):
-            trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
-        torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
-    trainer.Training(model, source_domain, unlabeled_target, dev_eval, te_eval, max_iterate=100)     
+#     trainer.domain_discriminator = discriminator
+#     print("being domain discriminate!")
+#     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl"):
+#         trainer.domain_discriminator.load_state_dict(
+#             torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
+#         )
+#     else:
+#         for epoch in range(3):
+#             trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
+#         torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
+#     trainer.Training(model, source_domain, unlabeled_target, dev_eval, te_eval, max_iterate=100)     
 
-    # trainer.dataset2dataloader2(model, tr, shuffle=True, batch_size=32)
-    # trainer.meta_learning(model, train_set=tr, meta_dev=meta_dev, dev_eval=dev_eval, test_eval=te_eval, batch_size=32,
-    #                       grad_accum_cnt=1, valid_every=100,
-    #                       max_epochs=20, learning_rate=2e-5, model_lr=2e-5,
-    #                       model_file=os.path.join(log_dir, f'BiGCN_{test_event_name}.pkl'), weight_lr=0.1, meta_step=10)
+
     
-    # trainer.validate_cpt(model,test_eval=te_eval)
+    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
+        model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")
+
+    trainer.evaluateSmoothness(model,test_set,num_samples=100)

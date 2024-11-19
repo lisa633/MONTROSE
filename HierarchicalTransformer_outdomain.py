@@ -1322,6 +1322,62 @@ class DgMSTF_Trainer(MetaLearningFramework):
             step += 1
             if step >= max_step:
                 break
+
+    def evaluateSmoothness(self, model: TwitterTransformer, source_domain: MetaMCMCDataset, pseudo_target: PseudoDataset, num_samples=100):
+
+        # 获取当前模型参数
+        original_params = {name: param.data.clone() for name, param in model.named_parameters()}
+        
+        # 计算原始损失
+        original_loss = 0.0
+        count = 0
+        for batch in DgMSTF_Loader([source_domain], pseudo_target,
+                                        batch_size=self.max_batch_size,
+                                        source_ratio=self.train_mix_ratio,
+                                        reshuffle=True):
+            original_loss += model.get_CrossEntropyLoss(batch).item()
+            count += 1
+        original_loss /= len(DgMSTF_Loader)
+        
+        # 蒙特卡洛估计
+        total_loss_diff = 0.0
+        for _ in range(num_samples):
+            # 生成随机方向
+            random_direction = {name: torch.randn_like(param) for name, param in model.named_parameters()}
+            # 归一化方向向量
+            norm = torch.sqrt(sum((param ** 2).sum() for param in random_direction.values()))
+            for name in random_direction:
+                random_direction[name] /= norm
+            
+            # 移动到球面上的点
+            perturbed_params = {name: original_params[name] + self.epsilon_ball * random_direction[name] for name in original_params}
+            
+            # 将模型参数设置为扰动后的参数
+            for name, param in model.named_parameters():
+                param.data = perturbed_params[name]
+            
+            # 计算扰动后的损失
+            perturbed_loss = 0.0
+            for batch in DgMSTF_Loader([source_domain], pseudo_target,
+                                        batch_size=self.max_batch_size,
+                                        source_ratio=self.train_mix_ratio,
+                                        reshuffle=True):
+                perturbed_loss += model.get_CrossEntropyLoss(batch).item()
+            perturbed_loss /= count
+            
+            # 计算损失差
+            loss_diff = abs(perturbed_loss - original_loss)
+            total_loss_diff += loss_diff
+        
+        # 还原模型参数
+        for name, param in model.named_parameters():
+            param.data = original_params[name]
+        
+        # 计算损失变化的期望
+        expected_loss_diff = total_loss_diff / num_samples
+
+        print("average_train_loss_diff:",expected_loss_diff)
+        
         
 
 
@@ -1476,12 +1532,13 @@ class DgMSTF_Trainer(MetaLearningFramework):
                         max_iterate=100):
         self.iterate = 0
         for iterate in range(max_iterate):
-            self.PseudoLabeling(model, unlabeled_target)
-            self.Selection(unlabeled_target)
-            self.ModelRetraining(model, source_domain, unlabeled_target, test_set.labelTensor().argmax(dim=1), dev_eval, test_eval, 
-                                 max_epoch=self.inner_epochs)
-            model.valid(test_set, test_set.labelTensor(), suffix=f"{self.marker}_test")
-            self.PateroPrint(model, test_set)
+            # self.PseudoLabeling(model, unlabeled_target)
+            # self.Selection(unlabeled_target)
+            # self.ModelRetraining(model, source_domain, unlabeled_target, test_set.labelTensor().argmax(dim=1), dev_eval, test_eval, 
+            #                      max_epoch=self.inner_epochs)
+            # model.valid(test_set, test_set.labelTensor(), suffix=f"{self.marker}_test")
+            # self.PateroPrint(model, test_set)
+            self.evaluateSmoothness(model,source_domain,unlabeled_target,num_samples=100)
             
             self.iterate += 1
 

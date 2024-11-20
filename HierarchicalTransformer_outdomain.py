@@ -293,6 +293,66 @@ class TwitterTransformer(BiGCNRumorDetecV2):
         return loss, acc
 
 
+##########################################################################
+#mearsure sharpness
+
+def rand_unit(N):
+    random_vector = torch.randn(N)
+    random_unit_vector = random_vector / torch.norm(random_vector)
+    return random_unit_vector
+
+def add_flat_params_(flat_params, model):
+    offset = 0
+    for n, p in model.named_parameters():
+        size = p.numel()
+        ip = flat_params[offset:offset+size].view(p.shape)
+        with torch.no_grad():
+            p.add_(ip)
+        offset += size
+
+def accuracy_from_loader(model:TwitterTransformer,test_data:MetaMCMCDataset):
+    correct = 0
+    total = 0
+    losssum = 0.0
+
+    model.eval()
+    for batch in DANN_Dataloader(test_data,batch_size=16):
+        with torch.no_grad():
+            loss, acc = model.lossAndAcc(batch)
+        losssum += loss * len(batch)
+        correct += acc
+
+        batch_weights = torch.ones(len(batch))
+        total += batch_weights.sum().item()
+        
+    model.train()
+    
+    acc = correct / total
+    loss = losssum / total
+
+    return acc,loss
+    
+
+def eval_with_move(model:TwitterTransformer, direction, test_data, step_size=1., max_dist=50.):
+    # algo = copy.deepcopy(algorithm)
+    # make a unit vector
+    direction = direction / torch.norm(direction)
+    direction = direction.cuda()
+
+    loss_li = []
+    distance = 0.
+    while distance <= max_dist:
+        acc, loss = accuracy_from_loader(model, test_data)
+        loss_li.append(loss)
+
+        distance += step_size
+        add_flat_params_(direction*step_size, model)
+
+    return loss_li
+
+#########################################################################
+
+
 def obtain_Transformer(bertPath, device=None):
     if device is None:
         device = torch.device("cuda") if torch.cuda.is_available() else torch.device('cpu')
@@ -1323,58 +1383,30 @@ class DgMSTF_Trainer(MetaLearningFramework):
             if step >= max_step:
                 break
 
-    def evaluateSmoothness(self, model: TwitterTransformer, test_data: MetaMCMCDataset, num_samples=100):
-
-        # 获取当前模型参数
-        original_params = {name: param.data.clone() for name, param in model.named_parameters()}
-        
-        # 计算原始损失
-        original_loss = 0.0
-        for batch in DANN_Dataloader([test_data], batch_size=self.max_batch_size):
-            original_loss += model.get_CrossEntropyLoss(batch).item()
-            print("original_loss:",original_loss)
-        original_loss /= len(test_data)
-        
-        # 蒙特卡洛估计
-        total_loss_diff = 0.0
-        for _ in range(num_samples):
-            # 生成随机方向
-            random_direction = {name: torch.randn_like(param) for name, param in model.named_parameters()}
-            # 归一化方向向量
-            norm = torch.sqrt(sum((param ** 2).sum() for param in random_direction.values()))
-            for name in random_direction:
-                random_direction[name] /= norm
+    def evaluate_sharpness(model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=5., max_dist=60., n_repeat=100):
+        n_params = sum([
+            param.numel()
+            for name, param in model.named_parameters()
+        ])
             
-            # 移动到球面上的点
-            perturbed_params = {name: original_params[name] + self.epsilon_ball * random_direction[name] for name in original_params}
-            
-            # 将模型参数设置为扰动后的参数
-            for name, param in model.named_parameters():
-                param.data = perturbed_params[name]
-            
-            # 计算扰动后的损失
-            perturbed_loss = 0.0
-            for batch in DANN_Dataloader([test_data], batch_size=self.max_batch_size):
-                perturbed_loss += model.get_CrossEntropyLoss(batch).item()
-            perturbed_loss /= len(test_data)
-            
-            # 计算损失差
-            loss_diff = abs(perturbed_loss - original_loss)
-            total_loss_diff += loss_diff
-        
-        # 还原模型参数
-        for name, param in model.named_parameters():
-            param.data = original_params[name]
-        
-        # 计算损失变化的期望
-        expected_loss_diff = total_loss_diff / num_samples
+        results = []
+        org_model = copy.deepcopy(model)
+        for i in range(n_repeat):
+            logger.info("Repeat [%d/%d]" % (i+1, n_repeat))
+            direction = rand_unit(n_params)
+            res = eval_with_move(
+                model, direction, test_data, step_size=step_size, max_dist=max_dist,
+            )
+            results.append(res)
 
-        print("average_train_loss_diff:",expected_loss_diff)
+            for op, p in zip(org_model.parameters(), model.parameters()):
+                if not torch.allclose(op, p):
+                    raise ValueError("Sanity check failed")
+
+        # save
+        print(results) 
         
         
-
-
-    
 #     model1, [source_domain], unlabeled_target
     def domainAdverPerturb(self, model:VirtualModel, source_domains:List, target):
         self.optimizeDiscriminator(model, source_domains, target)

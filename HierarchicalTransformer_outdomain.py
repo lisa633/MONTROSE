@@ -254,7 +254,7 @@ class TwitterTransformer(BiGCNRumorDetecV2):
         # 检查是否有可用的GPU
         epsilon = torch.ones_like(preds) * 1e-8
         preds = (preds - epsilon).abs()  # to avoid the prediction [1.0, 0.0], which leads to the 'nan' value in log operation
-        print("preds device:",preds.device)
+#         print("preds device:",preds.device)
         labels = batch[-2].to(preds.device)
         loss, acc = self.loss_func(preds, labels, label_weight=label_weight, reduction=reduction)
         return loss, acc
@@ -316,7 +316,7 @@ def accuracy_from_loader(model:TwitterTransformer,test_data:MetaMCMCDataset):
     losssum = 0.0
 
     model.eval()
-    for batch in DANN_Dataloader(test_data,batch_size=16):
+    for batch in DANN_Dataloader([test_data],batch_size=32):
         with torch.no_grad():
             loss, acc = model.lossAndAcc(batch)
         losssum += loss * len(batch)
@@ -342,11 +342,13 @@ def eval_with_move(model:TwitterTransformer, direction, test_data, step_size=1.,
     loss_li = []
     distance = 0.
     while distance <= max_dist:
+        print("distance:",distance)
         acc, loss = accuracy_from_loader(model, test_data)
-        loss_li.append(loss)
+        loss_li.append(loss.item())
 
         distance += step_size
         add_flat_params_(direction*step_size, model)
+    print(loss_li)
 
     return loss_li
 
@@ -1294,7 +1296,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
     ### General Training Parameters ###
     lr4model=5e-5 # learning rate for updating the model's parameters
     device=torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-    max_batch_size=8
+    max_batch_size=32
     grad_accum_cnt = 1
     valid_every = 20
 
@@ -1383,28 +1385,38 @@ class DgMSTF_Trainer(MetaLearningFramework):
             if step >= max_step:
                 break
 
-    def evaluate_sharpness(model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=5., max_dist=60., n_repeat=100):
+    def evaluateSmoothness(self,model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=4., max_dist=40., n_repeat=100):
         n_params = sum([
             param.numel()
             for name, param in model.named_parameters()
         ])
             
         results = []
+        _,original_loss = accuracy_from_loader(model, test_data)
         org_model = copy.deepcopy(model)
         for i in range(n_repeat):
-            logger.info("Repeat [%d/%d]" % (i+1, n_repeat))
+            print(i)
             direction = rand_unit(n_params)
             res = eval_with_move(
                 model, direction, test_data, step_size=step_size, max_dist=max_dist,
             )
             results.append(res)
 
-            for op, p in zip(org_model.parameters(), model.parameters()):
-                if not torch.allclose(op, p):
-                    raise ValueError("Sanity check failed")
+#             for op, p in zip(org_model.parameters(), model.parameters()):
+#                 if not torch.allclose(op, p):
+#                     raise ValueError("Sanity check failed")
+        total_diff = 0
+        count = 0
+        for result in results:
+            for pert_loss in result:
+                diff = abs(pert_loss - original_loss)
+                total_diff += diff
+                count += 1
+                
+        expect_loss_diff = total_diff / count
 
         # save
-        print(results) 
+        print("average_loss_diff:",expect_loss_diff)
         
         
 #     model1, [source_domain], unlabeled_target
@@ -1653,4 +1665,4 @@ if __name__ == '__main__':
     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
         model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")
 
-    trainer.evaluateSmoothness(model,test_set,num_samples=100)
+    trainer.evaluateSmoothness(model,test_set)

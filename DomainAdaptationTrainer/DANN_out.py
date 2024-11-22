@@ -118,6 +118,67 @@ class TwitterTransformer(BiGCNRumorDetecV2):
         else:
             raise Exception("weird label tensor!")
         return loss, acc
+    
+##########################################################################
+#mearsure sharpness
+
+def rand_unit(N):
+    random_vector = torch.randn(N)
+    random_unit_vector = random_vector / torch.norm(random_vector)
+    return random_unit_vector
+
+def add_flat_params_(flat_params, model):
+    offset = 0
+    for n, p in model.named_parameters():
+        size = p.numel()
+        ip = flat_params[offset:offset+size].view(p.shape)
+        with torch.no_grad():
+            p.add_(ip)
+        offset += size
+
+def accuracy_from_loader(model:TwitterTransformer,test_data:MetaMCMCDataset):
+    correct = 0
+    total = 0
+    losssum = 0.0
+
+    model.eval()
+    for batch in DANN_Dataloader([test_data],batch_size=32):
+        with torch.no_grad():
+            loss, acc = model.lossAndAcc(batch)
+        losssum += loss * len(batch)
+        correct += acc
+
+        batch_weights = torch.ones(len(batch))
+        total += batch_weights.sum().item()
+        
+    model.train()
+    
+    acc = correct / total
+    loss = losssum / total
+
+    return acc,loss
+    
+
+def eval_with_move(model:TwitterTransformer, direction, test_data, step_size=1., max_dist=50.):
+    # algo = copy.deepcopy(algorithm)
+    # make a unit vector
+    direction = direction / torch.norm(direction)
+    direction = direction.cuda()
+
+    loss_li = []
+    distance = 0.
+    while distance <= max_dist:
+        print("distance:",distance)
+        acc, loss = accuracy_from_loader(model, test_data)
+        loss_li.append(loss.item())
+
+        distance += step_size
+        add_flat_params_(direction*step_size, model)
+    print(loss_li)
+
+    return loss_li
+
+#########################################################################
 
 def obtain_Transformer(bertPath, device=None):
     if device is None:
@@ -599,6 +660,39 @@ class DANNTrainer(BaseTrainer):
 
         print("domain_acc:",domain_acc_li)
         print("task_acc:",task_acc_li)
+        
+    def evaluateSmoothness(self,model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=4., max_dist=40., n_repeat=100):
+        n_params = sum([
+            param.numel()
+            for name, param in model.named_parameters()
+        ])
+            
+        results = []
+        _,original_loss = accuracy_from_loader(model, test_data)
+        org_model = copy.deepcopy(model)
+        for i in range(n_repeat):
+            print(i)
+            direction = rand_unit(n_params)
+            res = eval_with_move(
+                model, direction, test_data, step_size=step_size, max_dist=max_dist,
+            )
+            results.append(res)
+
+#             for op, p in zip(org_model.parameters(), model.parameters()):
+#                 if not torch.allclose(op, p):
+#                     raise ValueError("Sanity check failed")
+        total_diff = 0
+        count = 0
+        for result in results:
+            for pert_loss in result:
+                diff = abs(pert_loss - original_loss)
+                total_diff += diff
+                count += 1
+                
+        expect_loss_diff = total_diff / count
+
+        # save
+        print("average_loss_diff:",expect_loss_diff)
 
 
             

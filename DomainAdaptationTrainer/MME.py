@@ -58,11 +58,11 @@ class TwitterTransformer(BiGCNRumorDetecV2):
             raise Exception("weird label tensor!")
         return loss, acc
     
-    def AdvPredict(self, batch, temperature=1.0):
+    def AdvPredict(self, discriminator:nn.Module, batch, temperature=1.0):
         vecs = self.Batch2Vecs(batch)
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         vecs = vecs.to(device)
-        logits = domain_classifier(vecs)
+        logits = discriminator(vecs)
         preds = F.softmax(logits / temperature, dim=1)
         
         return preds
@@ -405,15 +405,15 @@ class MMETrainer(BaseTrainer):
         self.Lambda = Lambda
         self.valid_step = 0
 
-    def AdvEntrophy(self, trModel: VirtualModel, batch):
+    def AdvEntrophy(self, trModel: VirtualModel, discriminator: nn.Module, batch):
         assert hasattr(trModel, "AdvPredict")
-        preds = trModel.AdvPredict(batch)
+        preds = trModel.AdvPredict(discriminator, batch)
         epsilon = torch.ones_like(preds) * (1e-8)
         preds = (preds - epsilon).abs()
         loss = -1 * self.Lambda * (preds * (preds.log())).sum(dim=1).mean()
         return loss
 
-    def ModelTrain(self, trModel: VirtualModel, discriminator: nn.Module, labeled_source: CustomDataset, labeled_target: CustomDataset,
+    def ModelTrain(self, trModel: VirtualModel, labeled_source: CustomDataset, labeled_target: CustomDataset,
                    unlabeled_target: CustomDataset, valid_target: CustomDataset, test_target: CustomDataset,
                    maxEpoch, validEvery=20, learning_rate=None, valid_label=None, test_label=None):
         self.initTrainingEnv(self.seed)
@@ -433,7 +433,7 @@ class MMETrainer(BaseTrainer):
                 trainLoss.backward()
                 optim.step()
 
-                HEntrophy = self.AdvEntrophy(trModel, discriminator,batch2)
+                HEntrophy = self.AdvEntrophy(trModel, batch2)
                 optim.zero_grad()
                 HEntrophy.backward()
                 optim.step()
@@ -482,7 +482,7 @@ class MMETrainer(BaseTrainer):
                 trainLoader = Generator2(labeled_source, unlabeled_target, labeled_target, self.batch_size)
             for step, (batch1, batch2) in enumerate(trainLoader):
                 for da_idx in range(E_Step):
-                    HEntrophy = self.AdvEntrophy(trModel, batch2)
+                    HEntrophy = self.AdvEntrophy(trModel, discriminator, batch2)
                     optim_C.zero_grad()
                     (-1.0 * self.Lambda * HEntrophy).backward()
                     optim_C.step()
@@ -628,7 +628,7 @@ if __name__ == '__main__':
                                         learningRate=5e-5,
                                         domain_num=7)
 #     model.load_model(f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS{fewShotCnt}.pkl")
-    trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 50,learning_rate=3e-6, valid_label = val_set.labelTensor(), test_label=test_set.labelTensor())
+    trainer.ModelTrainV2(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 50,learning_rate=3e-6, valid_label = val_set.labelTensor(), test_label=test_set.labelTensor())
     
     trainer.PateroPrint(model,test_set)
 

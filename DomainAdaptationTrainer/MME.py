@@ -1,4 +1,5 @@
 import sys
+sys.path.append('..')
 
 import dgl
 
@@ -9,9 +10,18 @@ import torch, random, os
 import torch.nn as nn
 import torch.nn.functional as F
 from TrainingEnv import GradientReversal, BaseTrainer, CustomDataset, VirtualModel,VirtualEvaluater
+from typing import List, AnyStr
+import dgl
+from backpack import extend, extensions
 from prefetch_generator import background
 from torch.utils.data import Dataset
 import numpy as np
+from Data.BiGCN_Dataloader_out import BiGCNTwitterSet, FastBiGCNDataset, MetaMCMCDataset, load_data, load_data_twitter15
+from BaseModel.BiGCN_Utils.RumorDetectionBasic import BaseEvaluator
+from BaseModel.BiGCN_Utils.GraphRumorDect import BiGCNRumorDetecV2
+from BaseModel.modeling_bert import *
+from transformers.models.bert import BertConfig, BertTokenizer
+from BaseModel.BiGCN import DomainDiscriminator
 
 class TwitterTransformer(BiGCNRumorDetecV2):
     def __init__(self, sent2vec, prop_model, rdm_cls, **kwargs):
@@ -48,7 +58,7 @@ class TwitterTransformer(BiGCNRumorDetecV2):
             raise Exception("weird label tensor!")
         return loss, acc
     
-    def AdvPredict(self, domain_classifier:nn.Module, batch, temperature=1.0):
+    def AdvPredict(self, batch, temperature=1.0):
         vecs = self.Batch2Vecs(batch)
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         vecs = vecs.to(device)
@@ -395,9 +405,9 @@ class MMETrainer(BaseTrainer):
         self.Lambda = Lambda
         self.valid_step = 0
 
-    def AdvEntrophy(self, trModel: VirtualModel, discriminator: nn.Module, batch):
+    def AdvEntrophy(self, trModel: VirtualModel, batch):
         assert hasattr(trModel, "AdvPredict")
-        preds = trModel.AdvPredict(discriminator, batch)
+        preds = trModel.AdvPredict(batch)
         epsilon = torch.ones_like(preds) * (1e-8)
         preds = (preds - epsilon).abs()
         loss = -1 * self.Lambda * (preds * (preds.log())).sum(dim=1).mean()
@@ -423,7 +433,7 @@ class MMETrainer(BaseTrainer):
                 trainLoss.backward()
                 optim.step()
 
-                HEntrophy = self.AdvEntrophy(trModel, batch2)
+                HEntrophy = self.AdvEntrophy(trModel, discriminator,batch2)
                 optim.zero_grad()
                 HEntrophy.backward()
                 optim.step()
@@ -557,6 +567,21 @@ class MMETrainer(BaseTrainer):
         return tfidf_arr, num_nodes, A_TD, A_BU, \
             torch.tensor(labels), torch.tensor(topic_labels), weights, idxs
     
+    def PateroPrint(self, model:TwitterTransformer, testset:MetaMCMCDataset):
+        domain_acc_li = []
+        task_acc_li = []
+        for batch in DANN_Dataloader([testset], batch_size=20):
+            vecs = model.Batch2Vecs(batch)
+            probs = discriminator(vecs).softmax(dim=1)
+            predicted_labels = probs.argmax(dim=1)
+            domain_acc = (predicted_labels == batch[-1]).float().mean().item()
+            domain_acc_li.append(domain_acc)
+            _, acc = model.lossAndAcc(batch)
+            task_acc_li.append(acc)
+
+        print("domain_acc:",domain_acc_li)
+        print("task_acc:",task_acc_li)
+    
 if __name__ == '__main__':
     data_dir1 = r"../../../autodl-tmp/data/pheme-rnr-dataset/"
     data_dir2 = r"../../../autodl-tmp/data/t1516/"
@@ -593,7 +618,7 @@ if __name__ == '__main__':
     model = obtain_Transformer(bertPath)
     source_domain.initGraph()
     
-    trainer = MMETrainer(random_seed = 10086, log_dir = logDir, suffix = f"{test_event_name}_FS{fewShotCnt}", model_file = f"../../../autodl-tmp/pkl/MME/MME_{test_event_name}_FS{fewShotCnt}.pkl", class_num = 2, temperature=0.05,
+    trainer = MMETrainer(seed = 10086, log_dir = logDir, suffix = f"{test_event_name}_FS{fewShotCnt}", model_file = f"../../../autodl-tmp/pkl/MME/MME_{test_event_name}_FS{fewShotCnt}.pkl", class_num = 2, temperature=0.05,
                  learning_rate=3e-6, batch_size=32, Lambda=0.1)
     
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
@@ -603,5 +628,7 @@ if __name__ == '__main__':
                                         learningRate=5e-5,
                                         domain_num=7)
 #     model.load_model(f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS{fewShotCnt}.pkl")
-    trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 10,learning_rate=3e-6, valid_label = val_set.labelTensor(), test_label=test_set.labelTensor())
+    trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 50,learning_rate=3e-6, valid_label = val_set.labelTensor(), test_label=test_set.labelTensor())
+    
+    trainer.PateroPrint(model,test_set)
 

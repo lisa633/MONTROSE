@@ -341,8 +341,10 @@ def eval_with_move(model:TwitterTransformer, direction, test_data, step_size=1.,
 
     loss_li = []
     distance = 0.
+    original_model = copy.deepcopy(model)
     while distance <= max_dist:
         print("distance:",distance)
+        model.load_state_dict(original_model.state_dict())
         acc, loss = accuracy_from_loader(model, test_data)
         loss_li.append(loss.item())
 
@@ -1394,17 +1396,13 @@ class DgMSTF_Trainer(MetaLearningFramework):
         results = []
         _,original_loss = accuracy_from_loader(model, test_data)
         print("original_loss:",original_loss)
-        org_model = copy.deepcopy(model)
         for i in range(n_repeat):
             print(i)
             direction = rand_unit(n_params)
             res = eval_with_move(
-                org_model, direction, test_data, step_size=step_size, max_dist=max_dist,
+                model, direction, test_data, step_size=step_size, max_dist=max_dist,
             )
             results.append(res)
-            
-            _,original_loss_after = accuracy_from_loader(org_model, test_data)
-            print("loss_after:",original_loss_after)
 
 #             for op, p in zip(org_model.parameters(), model.parameters()):
 # #                 if not torch.allclose(op, p, rtol=1,atol=1e-3, equal_nan=True):
@@ -1412,8 +1410,6 @@ class DgMSTF_Trainer(MetaLearningFramework):
 
 #                 print(torch.isclose(op, p, rtol=1e-03))  
 
-                    
-        
         total_diff = 0
         count = 0
         for result in results:

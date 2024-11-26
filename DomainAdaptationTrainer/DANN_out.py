@@ -1,5 +1,6 @@
 import sys
 sys.path.append('..')
+import copy
 import os, pickle, random, numpy as np
 from TrainingEnv import BaseTrainer, AdversarialModel, CustomDataset, GradientReversal
 import torch, torch.nn as nn, torch.nn.functional as F
@@ -661,7 +662,7 @@ class DANNTrainer(BaseTrainer):
         print("domain_acc:",domain_acc_li)
         print("task_acc:",task_acc_li)
         
-    def evaluateSmoothness(self,model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=4., max_dist=40., n_repeat=100):
+    def evaluateSmoothness(self,model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=1.5, max_dist=15., n_repeat=100):
         n_params = sum([
             param.numel()
             for name, param in model.named_parameters()
@@ -737,16 +738,21 @@ if __name__ == '__main__':
     
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-    discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
-                                        model_device = model_device,
-                                        learningRate=5e-5,
-                                        domain_num=7)
-#     model.load_model(f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS{fewShotCnt}.pkl")
-    trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 3, learning_rate = 3e-6)
+#     discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
+#                                         model_device = model_device,
+#                                         learningRate=5e-5,
+#                                         domain_num=7)
+# #     model.load_model(f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS{fewShotCnt}.pkl")
+#     trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 3, learning_rate = 3e-6)
     
-    trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 10,test_label=test_set.labelTensor())
+#     trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 10,test_label=test_set.labelTensor())
 
-    trainer.PateroPrint(model,test_set)
+    if os.path.exists(f"../../autodl-tmp/pkl/DANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
+        model.load_model(f"../../autodl-tmp/pkl/DANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")
+
+    trainer.evaluateSmoothness(model,test_set)
+
+#     trainer.PateroPrint(model,test_set)
     
 
     

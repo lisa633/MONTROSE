@@ -58,12 +58,13 @@ class TwitterTransformer(BiGCNRumorDetecV2):
             raise Exception("weird label tensor!")
         return loss, acc
     
-    def AdvPredict(self, discriminator:nn.Module, batch, temperature=1.0):
-        vecs = self.Batch2Vecs(batch)
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        vecs = vecs.to(device)
-        logits = discriminator(vecs)
-        preds = F.softmax(logits / temperature, dim=1)
+    def AdvPredict(self, batch, temperature=1.0):
+#         vecs = self.Batch2Vecs(batch)
+#         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#         vecs = vecs.to(device)
+#         logits = discriminator(vecs)
+#         preds = F.softmax(logits / temperature, dim=1)
+        preds = self.predict(batch)
         
         return preds
         
@@ -405,9 +406,9 @@ class MMETrainer(BaseTrainer):
         self.Lambda = Lambda
         self.valid_step = 0
 
-    def AdvEntrophy(self, trModel: VirtualModel, discriminator: nn.Module, batch):
+    def AdvEntrophy(self, trModel: VirtualModel, batch):
         assert hasattr(trModel, "AdvPredict")
-        preds = trModel.AdvPredict(discriminator, batch)
+        preds = trModel.AdvPredict(batch)
         epsilon = torch.ones_like(preds) * (1e-8)
         preds = (preds - epsilon).abs()
         loss = -1 * self.Lambda * (preds * (preds.log())).sum(dim=1).mean()
@@ -473,16 +474,19 @@ class MMETrainer(BaseTrainer):
     def ModelTrainV2(self, trModel: VirtualModel, discriminator: nn.Module, labeled_source: CustomDataset,
                      labeled_target: CustomDataset,
                      unlabeled_target: CustomDataset, valid_target: CustomDataset, test_target: CustomDataset,
-                     maxEpoch=10, validEvery=20, E_Step=1, T_Step=5):
+                     maxEpoch=10, validEvery=20, E_Step=1, T_Step=5, lr_G=3e-6,lr_C=5e-5):
         self.initTrainingEnv(10086)
-        optim_G = trModel.obtain_optim()
-        optim_C = discriminator.obtain_optim()
+        optim_G = trModel.obtain_optim(lr_G)
+        optim_C = discriminator.obtain_optim(lr_C)
         for epoch in range(maxEpoch):
             if labeled_target is None:
                 trainLoader = Generator2(labeled_source, unlabeled_target, labeled_target, self.batch_size)
+            else:
+                trainLoader = Generator3(labeled_source, unlabeled_target, labeled_target, self.batch_size)
+                
             for step, (batch1, batch2) in enumerate(trainLoader):
                 for da_idx in range(E_Step):
-                    HEntrophy = self.AdvEntrophy(trModel, discriminator, batch2)
+                    HEntrophy = self.AdvEntrophy(trModel, batch2)
                     optim_C.zero_grad()
                     (-1.0 * self.Lambda * HEntrophy).backward()
                     optim_C.step()
@@ -628,7 +632,7 @@ if __name__ == '__main__':
                                         learningRate=5e-5,
                                         domain_num=7)
 #     model.load_model(f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS{fewShotCnt}.pkl")
-    trainer.ModelTrainV2(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 50,learning_rate=3e-6, valid_label = val_set.labelTensor(), test_label=test_set.labelTensor())
+    trainer.ModelTrainV2(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 50,E_Step=1, T_Step=5,lr_G=2e-7,lr_C=5e-5)
     
     trainer.PateroPrint(model,test_set)
 

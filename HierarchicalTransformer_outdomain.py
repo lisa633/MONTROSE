@@ -1385,7 +1385,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
             if step >= max_step:
                 break
 
-    def evaluateSmoothness(self,model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=4.5, max_dist=45., n_repeat=100):
+    def evaluateSmoothness(self,model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=3.5, max_dist=35., n_repeat=100):
         n_params = sum([
             param.numel()
             for name, param in model.named_parameters()
@@ -1393,18 +1393,27 @@ class DgMSTF_Trainer(MetaLearningFramework):
             
         results = []
         _,original_loss = accuracy_from_loader(model, test_data)
+        print("original_loss:",original_loss)
         org_model = copy.deepcopy(model)
         for i in range(n_repeat):
             print(i)
             direction = rand_unit(n_params)
             res = eval_with_move(
-                model, direction, test_data, step_size=step_size, max_dist=max_dist,
+                org_model, direction, test_data, step_size=step_size, max_dist=max_dist,
             )
             results.append(res)
+            
+            _,original_loss_after = accuracy_from_loader(org_model, test_data)
+            print("loss_after:",original_loss_after)
 
 #             for op, p in zip(org_model.parameters(), model.parameters()):
-#                 if not torch.allclose(op, p):
-#                     raise ValueError("Sanity check failed")
+# #                 if not torch.allclose(op, p, rtol=1,atol=1e-3, equal_nan=True):
+# #                     raise ValueError("Sanity check failed")
+
+#                 print(torch.isclose(op, p, rtol=1e-03))  
+
+                    
+        
         total_diff = 0
         count = 0
         for result in results:

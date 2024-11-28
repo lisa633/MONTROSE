@@ -1387,7 +1387,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
             if step >= max_step:
                 break
 
-    def evaluateSmoothness(self,model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=3.5, max_dist=35., n_repeat=100):
+    def evaluateSmoothness(self,model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=5., max_dist=50., n_repeat=100):
         n_params = sum([
             param.numel()
             for name, param in model.named_parameters()

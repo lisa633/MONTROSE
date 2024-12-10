@@ -1387,7 +1387,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
             if step >= max_step:
                 break
 
-    def evaluateSmoothness(self,model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=5., max_dist=50., n_repeat=100):
+    def evaluateSmoothness(self,model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=2., max_dist=20., n_repeat=100):
         n_params = sum([
             param.numel()
             for name, param in model.named_parameters()
@@ -1480,11 +1480,11 @@ class DgMSTF_Trainer(MetaLearningFramework):
                 predicted_labels = probs.argmax(dim=1)
                 domain_loss = F.nll_loss(probs.log(), predicted_labels, weight=None, reduction='mean')
                 domain_train_loss += domain_loss.item()
-#                 print("domain_train_loss:",domain_train_loss)
+                print("domain_train_loss:",domain_train_loss)
                 domain_acc = (predicted_labels == batch[-1]).float().mean().item()
                 loss, acc = model.lossAndAcc(batch)
                 task_train_loss += loss.item()
-#                 print("task_train_loss:",task_train_loss)
+                print("task_train_loss:",task_train_loss)
                 losses = model.get_CrossEntropyLoss(batch)
                 with cockpit(
                     step,
@@ -1516,8 +1516,8 @@ class DgMSTF_Trainer(MetaLearningFramework):
                 domain_train_losses.append(domain_train_loss/count)
                 task_train_losses.append(task_train_loss/count)
         
-        # print("domain_loss:",domain_train_losses)
-        # print("task_loss:",task_train_losses)
+        print("domain_loss:",domain_train_losses)
+        print("task_loss:",task_train_losses)
         # figure_name = f"./Model_Loss_{epoch}.png"
             
         # plt.plot(np.arange(len(domain_train_losses)), domain_train_losses,label="domain train loss")
@@ -1590,7 +1590,7 @@ if __name__ == '__main__':
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege','twitter15','twitter16']
     # for domain_ID in range(5):
-    domain_ID = 5
+    domain_ID = 6
     fewShotCnt = 100
     source_events = []
     target_events = []
@@ -1651,23 +1651,23 @@ if __name__ == '__main__':
     trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=7,class_num=2, temperature=0.05, learning_rate=2e-5, batch_size=10, epsilon_ball=5e-5,gStep=5, Lambda=0.1, D_lr=2e-4, valid_every=10, dStep=20) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    # discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
-    #                                     model_device = model_device,
-    #                                     learningRate=5e-5,
-    #                                     domain_num=7)
-    # trainer.domain_discriminator = discriminator
-    # print("being domain discriminate!")
-    # if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl"):
-    #     trainer.domain_discriminator.load_state_dict(
-    #         torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
-    #     )
-    # else:
-    #     for epoch in range(3):
-    #         trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
-    #     torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
-    # trainer.Training(model, source_domain, unlabeled_target, dev_eval, te_eval, max_iterate=100) 
+    discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
+                                        model_device = model_device,
+                                        learningRate=5e-5,
+                                        domain_num=7)
+    trainer.domain_discriminator = discriminator
+    print("being domain discriminate!")
+    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl"):
+        trainer.domain_discriminator.load_state_dict(
+            torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
+        )
+    else:
+        for epoch in range(3):
+            trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
+        torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
+    trainer.Training(model, source_domain, unlabeled_target, dev_eval, te_eval, max_iterate=100) 
     
-    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
-        model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")
+#     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
+#         model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")
 
-    trainer.evaluateSmoothness(model,test_set)
+#     trainer.evaluateSmoothness(model,test_set)

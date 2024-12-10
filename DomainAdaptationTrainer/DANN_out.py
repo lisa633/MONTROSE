@@ -168,8 +168,10 @@ def eval_with_move(model:TwitterTransformer, direction, test_data, step_size=1.,
 
     loss_li = []
     distance = 0.
+    original_model = copy.deepcopy(model)
     while distance <= max_dist:
         print("distance:",distance)
+        model.load_state_dict(original_model.state_dict())
         acc, loss = accuracy_from_loader(model, test_data)
         loss_li.append(loss.item())
 
@@ -566,11 +568,21 @@ class DANNTrainer(BaseTrainer):
                 [{"params": discriminator.parameters(), "lr": self.learning_rate}]
         optim = torch.optim.Adam(paras, lr=self.learning_rate)
         best_test_acc=0
+        domain_train_losses = []
+        task_train_losses = []
         for epoch in range(maxEpoch):
+            domain_train_loss = 0
+            task_train_loss = 0
+            count = 0
             maxIters, trainLoader = DataIter(labeledSource, unlabeledTarget, labeledTarget, self.batch_size)
             for step, (batch1, batch2) in enumerate(trainLoader()):
+                count += 1
                 loss, acc = trModel.lossAndAcc(batch1)
                 DLoss, DAcc = trModel.AdvDLossAndAcc(discriminator, batch2)
+                domain_train_loss += DLoss.item()
+                print("domain_train_loss:",domain_train_loss)
+                task_train_loss += loss.item()
+                print("task_train_loss:",task_train_loss)
                 trainLoss = loss + self.Lambda * DLoss
                 optim.zero_grad()
                 trainLoss.backward()
@@ -601,6 +613,12 @@ class DANNTrainer(BaseTrainer):
                         if test_acc>best_test_acc:
                             best_test_acc=test_acc
                             print("best_test_acc_un",best_test_acc)
+                            
+                domain_train_losses.append(domain_train_loss/count)
+                task_train_losses.append(task_train_loss/count)
+                
+        print("domain_loss:",domain_train_losses)
+        print("task_loss:",task_train_losses)
 
     def ModelTrainV2(self, trModel: AdversarialModel, discriminator: nn.Module,
                      labeledSource: CustomDataset, labeledTarget: CustomDataset,
@@ -662,7 +680,7 @@ class DANNTrainer(BaseTrainer):
         print("domain_acc:",domain_acc_li)
         print("task_acc:",task_acc_li)
         
-    def evaluateSmoothness(self,model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=1.5, max_dist=15., n_repeat=100):
+    def evaluateSmoothness(self,model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=3., max_dist=30., n_repeat=100):
         n_params = sum([
             param.numel()
             for name, param in model.named_parameters()
@@ -704,7 +722,7 @@ if __name__ == '__main__':
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege','twitter15','twitter16']
     # for domain_ID in range(5):
-    domain_ID = 5
+    domain_ID = 6
     fewShotCnt = 100
     source_events = []
     target_events = []
@@ -738,19 +756,19 @@ if __name__ == '__main__':
     
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-#     discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
-#                                         model_device = model_device,
-#                                         learningRate=5e-5,
-#                                         domain_num=7)
-# #     model.load_model(f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS{fewShotCnt}.pkl")
-#     trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 3, learning_rate = 3e-6)
+    discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
+                                        model_device = model_device,
+                                        learningRate=5e-5,
+                                        domain_num=7)
+#     model.load_model(f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS{fewShotCnt}.pkl")
+    trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 3, learning_rate = 3e-6)
     
-#     trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 10,test_label=test_set.labelTensor())
+    trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 10,test_label=test_set.labelTensor())
 
-    if os.path.exists(f"../../autodl-tmp/pkl/DANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
-        model.load_model(f"../../autodl-tmp/pkl/DANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")
+#     if os.path.exists(f"../../autodl-tmp/pkl/DANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
+#         model.load_model(f"../../autodl-tmp/pkl/DANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")
 
-    trainer.evaluateSmoothness(model,test_set)
+#     trainer.evaluateSmoothness(model,test_set)
 
 #     trainer.PateroPrint(model,test_set)
     

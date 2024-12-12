@@ -1,4 +1,4 @@
 #!/bin/bash
 
-pushd ~/da-mstf
-python HierarchicalTransformer.py > ~/da-mstf/pheme_1017_0.log
+pushd ~/da-mstf_rumor/da-mstf_rumor
+python HierarchicalTransformer.py > ~/autodl-tmp/log/GpDANN/pheme_1210_0.log

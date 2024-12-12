@@ -722,7 +722,7 @@ if __name__ == '__main__':
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege','twitter15','twitter16']
     # for domain_ID in range(5):
-    domain_ID = 6
+    domain_ID = 5
     fewShotCnt = 100
     source_events = []
     target_events = []

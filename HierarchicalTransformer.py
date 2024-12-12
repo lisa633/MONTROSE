@@ -1523,28 +1523,28 @@ if __name__ == '__main__':
         else:
             model.save_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")    
 
-    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=5,class_num=2, temperature=0.05, learning_rate=2e-5, batch_size=32, epsilon_ball=5e-5,gStep=5, Lambda=0.1, D_lr=2e-3, valid_every=20, dStep=20) 
+    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=5,class_num=2, temperature=0.05, learning_rate=2e-5, batch_size=32, epsilon_ball=5e-4,gStep=5, Lambda=0.1, G_lr = 5e-4, D_lr=2e-3, valid_every=10, dStep=20) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
                                         model_device = model_device,
                                         learningRate=5e-5,
                                         domain_num=5)
-#     trainer.domain_discriminator = discriminator
-#     print("being domain discriminate!")
-#     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl"):
-#         trainer.domain_discriminator.load_state_dict(
-#             torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
-#         )
-#     else:
-#         for epoch in range(3):
-#             trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
-#         torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
-#     trainer.Training(model, source_domain, unlabeled_target, dev_eval, te_eval, max_iterate=100)     
+    trainer.domain_discriminator = discriminator
+    print("being domain discriminate!")
+    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl"):
+        trainer.domain_discriminator.load_state_dict(
+            torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
+        )
+    else:
+        for epoch in range(3):
+            trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
+        torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
+    trainer.Training(model, source_domain, unlabeled_target, dev_eval, te_eval, max_iterate=100)     
 
 
     
-    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
-        model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")
+#     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
+#         model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")
 
-    trainer.evaluateSmoothness(model,test_set,num_samples=100)
+#     trainer.evaluateSmoothness(model,test_set,num_samples=100)

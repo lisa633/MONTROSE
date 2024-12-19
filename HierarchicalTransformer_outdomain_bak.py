@@ -3,6 +3,7 @@ import pickle
 import re
 import sys, os, dgl, random
 import time
+import matplotlib.pyplot as plt
 
 from transformers import TextGenerationPipeline, GPT2Tokenizer, GPT2LMHeadModel, pipeline
 
@@ -42,7 +43,7 @@ from transformers.models.bert import BertConfig, BertTokenizer
 import torch, torch.nn as nn
 from typing import List, AnyStr
 from torch.utils.data import Dataset
-from Data.BiGCN_Dataloader import load_data
+from Data.BiGCN_Dataloader_out import load_data
 from BaseModel.BiGCN_Utils.RumorDetectionBasic import RumorBaseTrainer
 import pdb
 from TrainingEnv import VirtualModel, CustomDataset, GradientReversal
@@ -253,7 +254,7 @@ class TwitterTransformer(BiGCNRumorDetecV2):
         # 检查是否有可用的GPU
         epsilon = torch.ones_like(preds) * 1e-8
         preds = (preds - epsilon).abs()  # to avoid the prediction [1.0, 0.0], which leads to the 'nan' value in log operation
-        print("preds device:",preds.device)
+#         print("preds device:",preds.device)
         labels = batch[-2].to(preds.device)
         loss, acc = self.loss_func(preds, labels, label_weight=label_weight, reduction=reduction)
         return loss, acc
@@ -290,6 +291,70 @@ class TwitterTransformer(BiGCNRumorDetecV2):
         else:
             raise Exception("weird label tensor!")
         return loss, acc
+
+
+##########################################################################
+#mearsure sharpness
+
+def rand_unit(N):
+    random_vector = torch.randn(N)
+    random_unit_vector = random_vector / torch.norm(random_vector)
+    return random_unit_vector
+
+def add_flat_params_(flat_params, model):
+    offset = 0
+    for n, p in model.named_parameters():
+        size = p.numel()
+        ip = flat_params[offset:offset+size].view(p.shape)
+        with torch.no_grad():
+            p.add_(ip)
+        offset += size
+
+def accuracy_from_loader(model:TwitterTransformer,test_data:MetaMCMCDataset):
+    correct = 0
+    total = 0
+    losssum = 0.0
+
+    model.eval()
+    for batch in DANN_Dataloader([test_data],batch_size=32):
+        with torch.no_grad():
+            loss, acc = model.lossAndAcc(batch)
+        losssum += loss * len(batch)
+        correct += acc
+
+        batch_weights = torch.ones(len(batch))
+        total += batch_weights.sum().item()
+        
+    model.train()
+    
+    acc = correct / total
+    loss = losssum / total
+
+    return acc,loss
+    
+
+def eval_with_move(model:TwitterTransformer, direction, test_data, step_size=1., max_dist=50.):
+    # algo = copy.deepcopy(algorithm)
+    # make a unit vector
+    direction = direction / torch.norm(direction)
+    direction = direction.cuda()
+
+    loss_li = []
+    distance = 0.
+    original_model = copy.deepcopy(model)
+    while distance <= max_dist:
+        print("distance:",distance)
+        model.load_state_dict(original_model.state_dict())
+        acc, loss = accuracy_from_loader(model, test_data)
+        loss_li.append(loss.item())
+
+        distance += step_size
+        add_flat_params_(direction*step_size, model)
+    print(loss_li)
+
+    return loss_li
+
+#########################################################################
 
 
 def obtain_Transformer(bertPath, device=None):
@@ -358,6 +423,9 @@ class BiGCNTrainer(RumorBaseTrainer):
         labels = [item.data_y for item in items]
         topic_labels = [item.topic_label for item in items]
         num_nodes = [g.num_nodes() for g in TD_graphs]
+        print(len(sents))
+        print(num_nodes)
+        assert len(sents)==num_nodes
         big_g_TD = dgl.batch(TD_graphs)
         big_g_BU = dgl.batch(BU_graphs)
         A_TD = big_g_TD.adjacency_matrix().to_dense().to(device)
@@ -504,6 +572,7 @@ class MetaBiGCNTrainer(BiGCNTrainer, MetaLearningFramework):
         return torch.dot(vec1, vec2) / (vec1.norm() * vec2.norm())
 
     def collate_fn(self, items):
+#         print("items:",items)
         device = torch.device("cuda") if torch.cuda.is_available() else torch.device('cpu')
         sents = [item.text for item in items]
         TD_graphs = [item.g_TD for item in items]
@@ -511,6 +580,8 @@ class MetaBiGCNTrainer(BiGCNTrainer, MetaLearningFramework):
         labels = [item.data_y for item in items]
         topic_labels = [item.topic_label for item in items]
         num_nodes = [g.num_nodes() for g in TD_graphs]
+        lens = [item.data_len for item in items]
+        sen_l = []
         big_g_TD = dgl.batch(TD_graphs)
         big_g_BU = dgl.batch(BU_graphs)
         A_TD = big_g_TD.adjacency_matrix().to_dense().to(device)
@@ -1222,7 +1293,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
     domain_discriminator:nn.Module=None
     labeled_target:MetaMCMCDataset = None
     class_num = 2
-    domain_num = 5
+    domain_num = 7
 
     ### General Training Parameters ###
     lr4model=5e-5 # learning rate for updating the model's parameters
@@ -1245,7 +1316,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
     ### sharpness-aware parameters
     epsilon_ball = 5e-5
     alternate_gap = 1
-    train_mix_ratio = 0.8
+    train_mix_ratio = 0.5
     train_mix_annealing = False
     valid_mix_ratio = 0.5
     valid_mix_annealing = False
@@ -1315,58 +1386,44 @@ class DgMSTF_Trainer(MetaLearningFramework):
             step += 1
             if step >= max_step:
                 break
+
+    def evaluateSmoothness(self,model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=2., max_dist=20., n_repeat=100):
+        n_params = sum([
+            param.numel()
+            for name, param in model.named_parameters()
+        ])
+            
+        results = []
+        _,original_loss = accuracy_from_loader(model, test_data)
+        print("original_loss:",original_loss)
+        for i in range(n_repeat):
+            print(i)
+            direction = rand_unit(n_params)
+            res = eval_with_move(
+                model, direction, test_data, step_size=step_size, max_dist=max_dist,
+            )
+            results.append(res)
+
+#             for op, p in zip(org_model.parameters(), model.parameters()):
+# #                 if not torch.allclose(op, p, rtol=1,atol=1e-3, equal_nan=True):
+# #                     raise ValueError("Sanity check failed")
+
+#                 print(torch.isclose(op, p, rtol=1e-03))  
+
+        total_diff = 0
+        count = 0
+        for result in results:
+            for pert_loss in result:
+                diff = abs(pert_loss - original_loss)
+                total_diff += diff
+                count += 1
                 
-    def evaluateSmoothness(self, model: TwitterTransformer, test_data: MetaMCMCDataset, num_samples=100):
+        expect_loss_diff = total_diff / count
 
-        # 获取当前模型参数
-        original_params = {name: param.data.clone() for name, param in model.named_parameters()}
+        # save
+        print("average_loss_diff:",expect_loss_diff)
         
-        # 计算原始损失
-        original_loss = 0.0
-        for batch in DANN_Dataloader([test_data], batch_size=self.max_batch_size):
-            original_loss += model.get_CrossEntropyLoss(batch).item()
-            print("original_loss:",original_loss)
-        original_loss /= len(test_data)
         
-        # 蒙特卡洛估计
-        total_loss_diff = 0.0
-        for _ in range(num_samples):
-            # 生成随机方向
-            random_direction = {name: torch.randn_like(param) for name, param in model.named_parameters()}
-            # 归一化方向向量
-            norm = torch.sqrt(sum((param ** 2).sum() for param in random_direction.values()))
-            for name in random_direction:
-                random_direction[name] /= norm
-            
-            # 移动到球面上的点
-            perturbed_params = {name: original_params[name] + self.epsilon_ball * random_direction[name] for name in original_params}
-            
-            # 将模型参数设置为扰动后的参数
-            for name, param in model.named_parameters():
-                param.data = perturbed_params[name]
-            
-            # 计算扰动后的损失
-            perturbed_loss = 0.0
-            for batch in DANN_Dataloader([test_data], batch_size=self.max_batch_size):
-                perturbed_loss += model.get_CrossEntropyLoss(batch).item()
-            perturbed_loss /= len(test_data)
-            
-            # 计算损失差
-            loss_diff = abs(perturbed_loss - original_loss)
-            total_loss_diff += loss_diff
-        
-        # 还原模型参数
-        for name, param in model.named_parameters():
-            param.data = original_params[name]
-        
-        # 计算损失变化的期望
-        expected_loss_diff = total_loss_diff / num_samples
-
-        print("average_train_loss_diff:",expected_loss_diff)
-        
-
-
-    
 #     model1, [source_domain], unlabeled_target
     def domainAdverPerturb(self, model:VirtualModel, source_domains:List, target):
         self.optimizeDiscriminator(model, source_domains, target)
@@ -1374,9 +1431,14 @@ class DgMSTF_Trainer(MetaLearningFramework):
         for batch in DANN_Dataloader([source_domains]+[target], batch_size=self.max_batch_size):
             vecs = model.Batch2Vecs(batch)
             probs = self.domain_discriminator(vecs).softmax(dim=1) #此处的概率是判断属于哪个域
+            predicted_labels = probs.argmax(dim=1)
+#             print("predicted:",predicted_labels)
+#             print("labeled:",batch[-1])
+            accuracy = (predicted_labels == batch[-1]).float().mean().item()
+#             print("accuracy:",accuracy)
             center = probs.data.mean(dim=0).unsqueeze(0)  #求一个batch的概率分布中心,e.g. tensor([[0.2398, 0.3077, 0.4525]], device='cuda')
             domain_loss = ((center * (probs.log().neg())).sum(dim=1) + (probs*(probs.log())).sum(dim=1)).mean()
-            print("##INFO(domainAdverPerturb)##  step {}, KL_Divergence {}".format(step, domain_loss))
+            print("##INFO(domainAdverPerturb)##  step {}, KL_Divergence {}, Accuracy {}".format(step, domain_loss, accuracy))
             self.domain_discriminator.zero_grad()
             model.zero_grad()
             domain_loss.backward()
@@ -1400,15 +1462,29 @@ class DgMSTF_Trainer(MetaLearningFramework):
         cockpit = Cockpit(model.rdm_cls.parameters(), quantities=quantities)
         step = 0
         best_acc = 0
+        domain_train_losses = []
+        task_train_losses = []
         for epoch in range(max_epoch):
+            domain_train_loss = 0
+            task_train_loss = 0
+            count = 0
             for batch in DgMSTF_Loader([source_domain], pseudo_target,
                                         batch_size=self.max_batch_size,
                                         source_ratio=self.train_mix_ratio,
                                         reshuffle=True):
-
+                count += 1
                 if step%self.alternate_gap == 0:
                     self.domainAdverPerturb(model, source_domain, pseudo_target)
+                vecs = model.Batch2Vecs(batch)
+                probs = self.domain_discriminator(vecs).softmax(dim=1) 
+                predicted_labels = probs.argmax(dim=1)
+                domain_loss = F.nll_loss(probs.log(), predicted_labels, weight=None, reduction='mean')
+                domain_train_loss += domain_loss.item()
+                print("domain_train_loss:",domain_train_loss)
+                domain_acc = (predicted_labels == batch[-1]).float().mean().item()
                 loss, acc = model.lossAndAcc(batch)
+                task_train_loss += loss.item()
+                print("task_train_loss:",task_train_loss)
                 losses = model.get_CrossEntropyLoss(batch)
                 model_optim.zero_grad()
                 with cockpit(
@@ -1422,11 +1498,12 @@ class DgMSTF_Trainer(MetaLearningFramework):
                     },
                 ):
                     losses.backward(create_graph=cockpit.create_graph(step))
+                
                 for name, param in model.named_parameters():
                     if hasattr(param, "init_data") and (param.init_data is not None):
                         param.data = param.init_data.clone()
                         param.init_data = None
-                print("ST_INFO: iterate:{}, step: {}, loss: {}, acc: {}".format(self.iterate, step, loss, acc))
+                print("ST_INFO: iterate:{}, step: {}, loss: {}, acc: {},domain_acc: {}".format(self.iterate, step, loss, acc, domain_acc))
                 model_optim.step()
                 step += 1
                 if step % (self.valid_every*self.grad_accum_cnt) == 0:
@@ -1436,7 +1513,41 @@ class DgMSTF_Trainer(MetaLearningFramework):
                         model.save_model(self.model_file)
                     te_acc = test_eval(model)
                     print("ST_INFO: iterate:{}, step: {}, val_acc: {}, test_acc: {}".format(self.iterate, step, val_acc, te_acc))
-    
+                
+                domain_train_losses.append(domain_train_loss/count)
+                task_train_losses.append(task_train_loss/count)
+        
+        print("domain_loss:",domain_train_losses)
+        print("task_loss:",task_train_losses)
+        # figure_name = f"./Model_Loss_{epoch}.png"
+            
+        # plt.plot(np.arange(len(domain_train_losses)), domain_train_losses,label="domain train loss")
+
+        # plt.plot(np.arange(len(task_train_losses)), task_train_losses, label="task train loss")
+
+        # plt.legend() #显示图例
+        # plt.xlabel('epoches')
+        # #plt.ylabel("epoch")
+        # plt.title('Model Loss')
+        # plt.show()
+        # plt.savefig(figure_name)
+        
+    def PateroPrint(self, model:TwitterTransformer, testset:MetaMCMCDataset):
+        print("here!")
+        domain_acc_li = []
+        task_acc_li = []
+        for batch in DANN_Dataloader([testset], batch_size=self.max_batch_size):
+            vecs = model.Batch2Vecs(batch)
+            probs = self.domain_discriminator(vecs).softmax(dim=1)
+            predicted_labels = probs.argmax(dim=1)
+            domain_acc = (predicted_labels == batch[-1]).float().mean().item()
+            domain_acc_li.append(domain_acc)
+            _, acc = model.lossAndAcc(batch)
+            task_acc_li.append(acc)
+
+        print("domain_acc:",domain_acc_li)
+        print("task_acc:",task_acc_li)
+            
     
     #model1,unlabeled target
     def PseudoLabeling(self, model, dataset:PseudoDataset, temperature = 1.0):
@@ -1468,27 +1579,42 @@ class DgMSTF_Trainer(MetaLearningFramework):
             self.Selection(unlabeled_target)
             self.ModelRetraining(model, source_domain, unlabeled_target, test_set.labelTensor().argmax(dim=1), dev_eval, test_eval, 
                                  max_epoch=self.inner_epochs)
-#             model.valid(test_set, test_set.labelTensor(), suffix=f"{self.marker}_test")
+            model.valid(test_set, test_set.labelTensor(), suffix=f"{self.marker}_test")
+            self.PateroPrint(model, test_set)
+            
             self.iterate += 1
 
 if __name__ == '__main__':
     data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
-    os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
+    data_dir2 = r"../../autodl-tmp/data/t1516/"
+    os.environ['CUDA_VISIBLE_DEVICES'] = "0,1" 
 
-    events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
+    events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege','twitter15','twitter16']
     # for domain_ID in range(5):
-    domain_ID = 4
+    domain_ID = 6
     fewShotCnt = 100
-    source_events = [os.path.join(data_dir1, dname)
-                     for idx, dname in enumerate(events_list) if idx != domain_ID]
-    # source_events = [os.path.join(data_dir1, dname)
-    #                  for idx, dname in enumerate(events_list)]
-    target_events = [os.path.join(data_dir1, events_list[domain_ID])]
+    source_events = []
+    target_events = []
+    for idx,dname in enumerate(events_list):
+        if idx != domain_ID:
+            if dname == "twitter15" or dname == "twitter16":
+                source_events.append(os.path.join(data_dir2, dname))
+            else:
+                source_events.append(os.path.join(data_dir1, dname))
+#                 source_events= [os.path.join(data_dir1, dname)]
+    for idx, dname in enumerate(events_list):
+        if idx == domain_ID:
+            if dname=="twitter15" or dname=="twitter16":
+                target_events.append(os.path.join(data_dir2, dname))
+            else:
+                target_events.append(os.path.join(data_dir1, dname))
+    
     test_event_name = events_list[domain_ID]
     #train_set, labeled_target, val_set, test_set, unlabeled_target
     source_domain, labeled_target, val_set, test_set, unlabeled_target = load_data(
         source_events, target_events, fewShotCnt, unlabeled_ratio=0.3
     )
+    
 
     # events_list_all = [os.path.join(data_dir1, dname)
     #                    for idx, dname in enumerate(events_list)]
@@ -1515,7 +1641,7 @@ if __name__ == '__main__':
     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):
         model.load_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")
     else:
-        trainer.fit(model, source_domain, dev_eval, te_eval, batch_size=32, grad_accum_cnt=1, learning_rate=2e-5,
+        trainer.fit(model, source_domain, dev_eval, te_eval, batch_size=24, grad_accum_cnt=1, learning_rate=2e-5,
                 max_epochs=20,
                 model_file=os.path.join(logDir, f'BiGCN_{test_event_name}.pkl'))
         if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):
@@ -1523,13 +1649,13 @@ if __name__ == '__main__':
         else:
             model.save_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")    
 
-    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=5,class_num=2, temperature=0.05, learning_rate=2e-5, batch_size=32, epsilon_ball=5e-5,gStep=5, Lambda=0.1, G_lr = 5e-6, D_lr=2e-4, valid_every=10, dStep=20) 
+    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=7,class_num=2, temperature=0.05, learning_rate=2e-5, batch_size=10, epsilon_ball=5e-5,gStep=5, Lambda=0.1, D_lr=2e-4, valid_every=10, dStep=20) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
                                         model_device = model_device,
-                                        learningRate=2e-5,
-                                        domain_num=5)
+                                        learningRate=5e-5,
+                                        domain_num=7)
     trainer.domain_discriminator = discriminator
     print("being domain discriminate!")
     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl"):
@@ -1540,11 +1666,9 @@ if __name__ == '__main__':
         for epoch in range(3):
             trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
         torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
-    trainer.Training(model, source_domain, unlabeled_target, dev_eval, te_eval, max_iterate=100)     
-
-
+    trainer.Training(model, source_domain, unlabeled_target, dev_eval, te_eval, max_iterate=100) 
     
 #     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
 #         model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")
 
-#     trainer.evaluateSmoothness(model,test_set,num_samples=100)
+#     trainer.evaluateSmoothness(model,test_set)

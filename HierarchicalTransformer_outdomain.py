@@ -453,7 +453,7 @@ class BiGCNTrainer(RumorBaseTrainer):
 
     def fit(self, model: TwitterTransformer, train_set, dev_eval=None, test_eval=None, batch_size=5,
             grad_accum_cnt=4,
-            valid_every=100, max_epochs=10, learning_rate=5e-3, model_file=""):
+            valid_every=50, max_epochs=10, learning_rate=5e-3, model_file=""):
         best_valid_acc, counter = 0.0, 0
         sum_loss, sum_acc = 0.0, 0.0
         optim = model.obtain_optim(learning_rate * 1.0 / grad_accum_cnt)
@@ -469,7 +469,7 @@ class BiGCNTrainer(RumorBaseTrainer):
 
         cockpit = Cockpit(model.rdm_cls.parameters(), quantities=quantities)
         plotter = CockpitPlotter()
-        max_steps, global_step = 500, 0
+        max_steps, global_step = 750, 0
 
         for epoch in range(max_epochs):
             train_loader = self.trainset2trainloader(model, train_set, shuffle=True, batch_size=batch_size)
@@ -1316,7 +1316,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
     ### sharpness-aware parameters
     epsilon_ball = 5e-5
     alternate_gap = 1
-    train_mix_ratio = 0.5
+    train_mix_ratio = 0.8
     train_mix_annealing = False
     valid_mix_ratio = 0.5
     valid_mix_annealing = False
@@ -1462,30 +1462,17 @@ class DgMSTF_Trainer(MetaLearningFramework):
         cockpit = Cockpit(model.rdm_cls.parameters(), quantities=quantities)
         step = 0
         best_acc = 0
-        domain_train_losses = []
-        task_train_losses = []
         for epoch in range(max_epoch):
-            domain_train_loss = 0
-            task_train_loss = 0
-            count = 0
             for batch in DgMSTF_Loader([source_domain], pseudo_target,
                                         batch_size=self.max_batch_size,
                                         source_ratio=self.train_mix_ratio,
                                         reshuffle=True):
-                count += 1
+
                 if step%self.alternate_gap == 0:
                     self.domainAdverPerturb(model, source_domain, pseudo_target)
-                vecs = model.Batch2Vecs(batch)
-                probs = self.domain_discriminator(vecs).softmax(dim=1) 
-                predicted_labels = probs.argmax(dim=1)
-                domain_loss = F.nll_loss(probs.log(), predicted_labels, weight=None, reduction='mean')
-                domain_train_loss += domain_loss.item()
-                print("domain_train_loss:",domain_train_loss)
-                domain_acc = (predicted_labels == batch[-1]).float().mean().item()
                 loss, acc = model.lossAndAcc(batch)
-                task_train_loss += loss.item()
-                print("task_train_loss:",task_train_loss)
                 losses = model.get_CrossEntropyLoss(batch)
+                
                 with cockpit(
                     step,
                     extensions.DiagHessian(),  # Other BackPACK quantities can be computed as well
@@ -1502,7 +1489,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
                     if hasattr(param, "init_data") and (param.init_data is not None):
                         param.data = param.init_data.clone()
                         param.init_data = None
-                print("ST_INFO: iterate:{}, step: {}, loss: {}, acc: {},domain_acc: {}".format(self.iterate, step, loss, acc, domain_acc))
+                print("ST_INFO: iterate:{}, step: {}, loss: {}, acc: {}".format(self.iterate, step, loss, acc))
                 model_optim.step()
                 step += 1
                 if step % (self.valid_every*self.grad_accum_cnt) == 0:
@@ -1513,11 +1500,6 @@ class DgMSTF_Trainer(MetaLearningFramework):
                     te_acc = test_eval(model)
                     print("ST_INFO: iterate:{}, step: {}, val_acc: {}, test_acc: {}".format(self.iterate, step, val_acc, te_acc))
                 
-                domain_train_losses.append(domain_train_loss/count)
-                task_train_losses.append(task_train_loss/count)
-        
-        print("domain_loss:",domain_train_losses)
-        print("task_loss:",task_train_losses)
         # figure_name = f"./Model_Loss_{epoch}.png"
             
         # plt.plot(np.arange(len(domain_train_losses)), domain_train_losses,label="domain train loss")
@@ -1640,20 +1622,20 @@ if __name__ == '__main__':
     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):
         model.load_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")
     else:
-        trainer.fit(model, source_domain, dev_eval, te_eval, batch_size=24, grad_accum_cnt=1, learning_rate=2e-5,
-                max_epochs=20,
+        trainer.fit(model, source_domain, dev_eval, te_eval, batch_size=32, grad_accum_cnt=1, learning_rate=5e-5,
+                max_epochs=25,
                 model_file=os.path.join(logDir, f'BiGCN_{test_event_name}.pkl'))
         if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):
             model.load_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")
         else:
             model.save_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")    
 
-    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=7,class_num=2, temperature=0.05, learning_rate=2e-5, batch_size=10, epsilon_ball=5e-5,gStep=5, Lambda=0.1, D_lr=2e-4, valid_every=10, dStep=20) 
+    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=7,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=18, epsilon_ball=5e-4,gStep=5, Lambda=0.1, G_lr = 5e-5, D_lr=2e-3, valid_every=10, dStep=20) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
                                         model_device = model_device,
-                                        learningRate=5e-5,
+                                        learningRate=2e-5,
                                         domain_num=7)
     trainer.domain_discriminator = discriminator
     print("being domain discriminate!")

@@ -111,9 +111,10 @@ target_data_copy = copy.deepcopy(target_data)
 
 for key,value in target_data.items():
     for i,sent in enumerate(value["sentence"]):
-        generate_sents = lm_generator(sent, num_return_sequences = 2, min_length=10,max_length=64, return_full_text=False)
+        generate_sents = lm_generator(sent, num_return_sequences =1, min_length=10,max_length=20, return_full_text=False)
         for j,gen_sent in enumerate(generate_sents):
-            gen_id =  target_data[key]["tweet_id"][i] + j
+            gen_id =  str(target_data[key]["tweet_id"][i]) + "_"+ str(j)
+            print("gen_id:",gen_id)
             create_time = target_data[key]["created_at"][i]
             new_reply = random.choice(target_data[key]["reply_to"])
             target_data_copy[key]['tweet_id'].append(gen_id)
@@ -121,4 +122,8 @@ for key,value in target_data.items():
             target_data_copy[key]["sentence"].append(gen_sent["generated_text"])
             target_data_copy[key]['created_at'].append(create_time)
             target_data_copy[key]['reply_to'].append(new_reply)
+            
+print("success!")
+            
+print(target_data_copy["498254340310966273"])
 

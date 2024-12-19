@@ -9,6 +9,8 @@ import torch
 import copy
 import random
 
+from Data.BiGCN_Dataloader import MetaMCMCDataset
+
 event_dics = {
     'charliehebdo': 0,
     'ferguson': 1,
@@ -126,4 +128,14 @@ for key,value in target_data.items():
 print("success!")
             
 print(target_data_copy["498254340310966273"])
+
+gen_target = MetaMCMCDataset()
+
+gen_target.data = target_data_copy
+
+gen_target.dataclear()
+
+event_dir = os.path.join(data_dir1, test_event_name, "gen")
+print(event_dir)
+gen_target.Caches_Data(event_dir)
 

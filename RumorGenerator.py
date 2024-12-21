@@ -8,7 +8,8 @@ import time,datetime
 import torch
 import copy
 import random
-import openai
+from openai import OpenAI
+import math
 
 from Data.BiGCN_Dataloader import MetaMCMCDataset
 
@@ -85,12 +86,14 @@ data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
 os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
 
 events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
-domain_ID = 0
+domain_ID = 2
 fewShotCnt = 100
 source_events = [os.path.join(data_dir1, dname)
                     for idx, dname in enumerate(events_list) if idx != domain_ID]
 target_events = [os.path.join(data_dir1, events_list[domain_ID])]
 test_event_name = events_list[domain_ID]
+
+generate_ratio = 0.3
 
 files = []
 for event_path in target_events:
@@ -101,36 +104,43 @@ print(files[0])
 
 target_data = twitter_data_process(files)
 
-# print(target_data["498254340310966273"])
 
-tok = GPT2Tokenizer.from_pretrained("../../autodl-tmp/gpt2")
-# tok.model_max_length = 128
-gpt2 = GPT2LMHeadModel.from_pretrained("../../autodl-tmp/gpt2").cuda()
-from transformers import pipeline
-
-lm_generator = pipeline('text-generation', model=gpt2, tokenizer=tok, device=0 if torch.cuda.is_available() else -1)
 
 target_data_copy = copy.deepcopy(target_data)
 
 for key,value in target_data.items():
-    for i,sent in enumerate(value["sentence"]):
-        generate_sents = lm_generator(sent, num_return_sequences = 1, min_length=10,max_length=64, return_full_text=False)
-        for j,gen_sent in enumerate(generate_sents):
-            gen_id =  int(str(target_data[key]["tweet_id"][i])+str(j))
-            print("gen_id:",gen_id)
-            start_date = datetime.datetime(2022,1,1)
-            end_date = datetime.datetime(2022,12,31)
-            random_date = start_date+random.random()*(end_date-start_date)
-            time_str = random_date.strftime("%Y-%m-%d %H:%M:%S")
-            d = datetime.datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
-            t = d.timetuple()  
-            create_time = int(time.mktime(t))
+    reply_num = len(value["sentence"])
+    temp_list = [k for k in range(reply_num)]
+    temp_idxs = random.sample(temp_list, math.ceil(reply_num*generate_ratio))
+    for i in temp_idxs:
+        text = value["sentence"][i]
+        client = OpenAI(
+        api_key="sk-65734579fab943f48234f366e64ad181", 
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    )
+        completion = client.chat.completions.create(
+        model="qwen-plus", # 模型列表：https://help.aliyun.com/zh/model-studio/getting-started/models
+        messages=[
+            {'role': 'system', 'content': 'You are a twitter user. You can generate twitter-form reply when given a twitter'},
+            {'role': 'user', 'content': 'here is the twitter:'+text+'Please generate the reply to it as a twitter user'}],
+        )
+        generate_sents = completion.choices[0].message.content
+        print(generate_sents)
+        gen_id =  int(str(target_data[key]["tweet_id"][i])+str(random.randint(0, 9)))
+        print("gen_id:",gen_id)
+        start_date = datetime.datetime(2022,1,1)
+        end_date = datetime.datetime(2022,12,31)
+        random_date = start_date+random.random()*(end_date-start_date)
+        time_str = random_date.strftime("%Y-%m-%d %H:%M:%S")
+        d = datetime.datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+        t = d.timetuple()  
+        create_time = int(time.mktime(t))
 #             new_reply = random.choice(target_data[key]["reply_to"])
-            new_reply = target_data[key]["reply_to"][i]
-            target_data_copy[key]['tweet_id'].append(gen_id)
-            target_data_copy[key]["sentence"].append(gen_sent["generated_text"])
-            target_data_copy[key]['created_at'].append(create_time)
-            target_data_copy[key]['reply_to'].append(new_reply)
+        new_reply = target_data[key]["tweet_id"]
+        target_data_copy[key]['tweet_id'].append(gen_id)
+        target_data_copy[key]["sentence"].append(generate_sents)
+        target_data_copy[key]['created_at'].append(create_time)
+        target_data_copy[key]['reply_to'].append(new_reply)
             
 print("success!")
             
@@ -142,7 +152,7 @@ gen_target.data = target_data_copy
 
 gen_target.dataclear()
 
-event_dir = os.path.join(data_dir1,"gen",test_event_name)
+event_dir = os.path.join(data_dir1,"qwen_gen",test_event_name)
 print(event_dir)
 gen_target.Caches_Data(event_dir)
 

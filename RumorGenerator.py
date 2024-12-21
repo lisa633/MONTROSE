@@ -1,4 +1,4 @@
-from transformers import TextGenerationPipeline, GPT2Tokenizer, GPT2LMHeadModel, pipeline
+# from transformers import TextGenerationPipeline, GPT2Tokenizer, GPT2LMHeadModel, pipeline
 import os
 
 import tqdm
@@ -8,6 +8,7 @@ import time,datetime
 import torch
 import copy
 import random
+import openai
 
 from Data.BiGCN_Dataloader import MetaMCMCDataset
 
@@ -84,7 +85,7 @@ data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
 os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
 
 events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
-domain_ID = 1
+domain_ID = 0
 fewShotCnt = 100
 source_events = [os.path.join(data_dir1, dname)
                     for idx, dname in enumerate(events_list) if idx != domain_ID]
@@ -100,7 +101,7 @@ print(files[0])
 
 target_data = twitter_data_process(files)
 
-print(target_data["498254340310966273"])
+# print(target_data["498254340310966273"])
 
 tok = GPT2Tokenizer.from_pretrained("../../autodl-tmp/gpt2")
 # tok.model_max_length = 128
@@ -113,21 +114,27 @@ target_data_copy = copy.deepcopy(target_data)
 
 for key,value in target_data.items():
     for i,sent in enumerate(value["sentence"]):
-        generate_sents = lm_generator(sent, num_return_sequences =1, min_length=10,max_length=20, return_full_text=False)
+        generate_sents = lm_generator(sent, num_return_sequences = 1, min_length=10,max_length=64, return_full_text=False)
         for j,gen_sent in enumerate(generate_sents):
-            gen_id =  str(target_data[key]["tweet_id"][i]) + "_"+ str(j)
+            gen_id =  int(str(target_data[key]["tweet_id"][i])+str(j))
             print("gen_id:",gen_id)
-            create_time = target_data[key]["created_at"][i]
-            new_reply = random.choice(target_data[key]["reply_to"])
+            start_date = datetime.datetime(2022,1,1)
+            end_date = datetime.datetime(2022,12,31)
+            random_date = start_date+random.random()*(end_date-start_date)
+            time_str = random_date.strftime("%Y-%m-%d %H:%M:%S")
+            d = datetime.datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+            t = d.timetuple()  
+            create_time = int(time.mktime(t))
+#             new_reply = random.choice(target_data[key]["reply_to"])
+            new_reply = target_data[key]["reply_to"][i]
             target_data_copy[key]['tweet_id'].append(gen_id)
-
             target_data_copy[key]["sentence"].append(gen_sent["generated_text"])
             target_data_copy[key]['created_at'].append(create_time)
             target_data_copy[key]['reply_to'].append(new_reply)
             
 print("success!")
             
-print(target_data_copy["498254340310966273"])
+# print(target_data_copy["498254340310966273"])
 
 gen_target = MetaMCMCDataset()
 
@@ -135,7 +142,7 @@ gen_target.data = target_data_copy
 
 gen_target.dataclear()
 
-event_dir = os.path.join(data_dir1, test_event_name, "gen")
+event_dir = os.path.join(data_dir1,"gen",test_event_name)
 print(event_dir)
 gen_target.Caches_Data(event_dir)
 

@@ -312,7 +312,6 @@ class TwitterLoader(RumorLoader):
         self._confidence = torch.ones(len(self.data_ID),device=torch.device('cuda'))
         self._entrophy = torch.zeros(len(self.data_ID),device=torch.device('cuda'))
         self.read_indexs = np.arange(len(self.data_ID))
-#         print(self.read_indexs)
         self.instance_weights = torch.ones([len(self.data_ID)], dtype=torch.float32,device=torch.device('cuda'))
 
         for i in range(len(self.data_ID)):  # pre processing the extra informations

@@ -385,7 +385,7 @@ class BiGCNTrainer(RumorBaseTrainer):
 
     def fit(self, model: TwitterTransformer, train_set, dev_eval=None, test_eval=None, batch_size=5,
             grad_accum_cnt=4,
-            valid_every=100, max_epochs=10, learning_rate=5e-3, model_file=""):
+            valid_every=50, max_epochs=10, learning_rate=5e-3, model_file=""):
         best_valid_acc, counter = 0.0, 0
         sum_loss, sum_acc = 0.0, 0.0
         optim = model.obtain_optim(learning_rate * 1.0 / grad_accum_cnt)
@@ -401,7 +401,7 @@ class BiGCNTrainer(RumorBaseTrainer):
 
         cockpit = Cockpit(model.rdm_cls.parameters(), quantities=quantities)
         plotter = CockpitPlotter()
-        max_steps, global_step = 500, 0
+        max_steps, global_step = 750, 0
 
         for epoch in range(max_epochs):
             train_loader = self.trainset2trainloader(model, train_set, shuffle=True, batch_size=batch_size)
@@ -1473,7 +1473,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
 
 if __name__ == '__main__':
     data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
-    data_dir2 = r"../../autodl-tmp/data/pheme-rnr-dataset/gen/ferguson"
+    data_dir2 = r"../../autodl-tmp/data/pheme-rnr-dataset/qwen_gen_new/ferguson"
     os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
@@ -1536,7 +1536,7 @@ if __name__ == '__main__':
         else:
             model.save_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")    
 
-    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=5,class_num=2, temperature=0.05, learning_rate=2e-5, batch_size=16, epsilon_ball=5e-5,gStep=5, Lambda=0.1, G_lr = 5e-6, D_lr=2e-4, valid_every=10, dStep=20) 
+    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=5,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=24, epsilon_ball=5e-5,gStep=10, Lambda=0.1, G_lr = 5e-5, D_lr=2e-4, valid_every=10, dStep=10) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
@@ -1550,7 +1550,7 @@ if __name__ == '__main__':
             torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
         )
     else:
-        for epoch in range(3):
+        for epoch in range(2):
             trainer.optimizeDiscriminator(model, source_domain, gen_unlabeled, max_step=500)
         torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
     trainer.Training(model, source_domain, gen_unlabeled, dev_eval, te_eval, max_iterate=100)     

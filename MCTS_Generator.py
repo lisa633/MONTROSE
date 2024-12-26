@@ -1,4 +1,4 @@
-import os,random,dgl
+import os,random,dgl,json
 from BaseModel.BiGCN import DomainDiscriminator
 from Data.BiGCN_Dataloader import MetaMCMCDataset,load_data
 from transformers.models.bert import BertConfig, BertTokenizer
@@ -6,6 +6,7 @@ from openai import OpenAI
 import torch, torch.nn as nn
 from typing import List
 import copy
+import time,datetime
 
 from backpack import extend, extensions
 from BaseModel.BiGCN_Utils.GraphRumorDect import BiGCNRumorDetecV2
@@ -16,6 +17,74 @@ client = OpenAI(
             api_key="sk-65734579fab943f48234f366e64ad181", 
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         )
+
+event_dics = {
+    'charliehebdo': 0,
+    'ferguson': 1,
+    'germanwings-crash': 2,
+    'ottawashooting': 3,
+    'sydneysiege': 4
+}
+
+def str2timestamp(str_time):
+    month = {'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
+             'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
+             'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'}
+    ss = str_time.split(' ')
+    m_time = ss[5] + "-" + month[ss[1]] + '-' + ss[2] + ' ' + ss[3]
+    d = datetime.datetime.strptime(m_time, "%Y-%m-%d %H:%M:%S")
+    t = d.timetuple()
+    timeStamp = int(time.mktime(t))
+    return timeStamp
+
+def scan_dir(files,dir_name):
+    for item in os.walk(dir_name):
+        if len(item[2]) == 0:
+            # no file in this dir
+            pass
+        else:
+            for fname in item[2]:
+                tmp_path = os.path.join(item[0], fname)
+                if tmp_path[-5:] == ".json": # is a json file
+                    files.append(tmp_path)
+                else:
+                    print("Warning: non json format file exists in %s : %s" % (dir_name, tmp_path))
+
+def twitter_data_process(files):
+    # print("files:",files)
+    data = {}
+    for file_path in files:
+        print(file_path)
+        twitter_dict = {}
+        ss = file_path.split("/")
+#         print(ss)
+        origin_data = json.load(open(file_path, mode="r", encoding="utf-8"))
+        # 'Wed Jan 07 11:14:08 +0000 2015'
+        if origin_data['lang'] == 'en':
+            twitter_dict[ss[-3]] = {
+                            'topic_label': event_dics[ss[-5]],
+                            'label': ss[-4],
+                            'event': ss[-5],
+                            'sentence': [origin_data['text'].lower()],
+                            'created_at': [str2timestamp(origin_data['created_at'])],
+                            'tweet_id': [origin_data['id']],
+                            "reply_to": [origin_data['in_reply_to_status_id']]
+                           }
+            
+            for key in twitter_dict.keys():  # use temporary data to organize the final whole data
+                if key in data:
+                    if twitter_dict[key]['tweet_id'][0] in data[key]['tweet_id']:
+                        pass  # sometimes, there are dumlicated posts
+                    else:
+                        data[key]['tweet_id'].append(twitter_dict[key]['tweet_id'][0])
+                        data[key]['sentence'].append(twitter_dict[key]['sentence'][0])
+                        data[key]['created_at'].append(twitter_dict[key]['created_at'][0])
+                        data[key]['reply_to'].append(twitter_dict[key]['reply_to'][0])
+                        
+                else:
+                    data[key] = twitter_dict[key]
+
+    return data
 
 class Node:
     def __init__(self,index,parent,children,data,model,discriminator):
@@ -52,7 +121,8 @@ class Node:
     def expand(self):
 
         prompt_sent = self.copy_data.text[self.index]
-        target_sent = random.choice(unlabeled_target[random.randint(0,len(unlabeled_target.data_ID))].text)
+        # target_sent = random.choice(unlabeled_target[random.randint(0,len(unlabeled_target.data_ID))].text)
+        target_sent = "Black teenage boys are not men. They are children. Stop referring to a 17 year old as a man. You are killing children. #ferguson"
         try:
             completion = client.chat.completions.create(
             model="qwen-plus", # 模型列表：https://help.aliyun.com/zh/model-studio/getting-started/models
@@ -417,10 +487,12 @@ if __name__ == '__main__':
         )
     else:
         for epoch in range(3):
-            discriminator(model, source_domain, gen_unlabeled, max_step=500)
+            discriminator(model, source_domain, unlabeled_target, max_step=500)
     source_data_copy = copy.deepcopy(source_domain)
 
-    for i in range(len(source_data_copy.data_ID)):
+    generate_dict = {}
+
+    for i,d_ID in enumerate(source_data_copy.data_ID):
         data = source_data_copy[i]
         tree = data.g_TD
         nodes = tree.nodes()
@@ -437,6 +509,37 @@ if __name__ == '__main__':
             if len(node.parent)==0:
                 root_node = node
         generate_sent = mcts(root_node, class_node_list, 10)
+        generate_dict[d_ID] = generate_sent
+   
+    files = []
+    for event_path in source_events:
+        scan_dir(files, event_path)
+
+    print(files[0])
+
+
+    source_data = twitter_data_process(files)
+    s_copy = copy.deepcopy(source_data)
+
+    for key,value in source_data.items():
+        new_key = int(str(key)+str(random.randint(0, 9)))
+        s_copy[new_key] = {}
+        s_copy[new_key]['topic_label'] = event_dics[test_event_name]
+        s_copy[new_key]['label'] = value['label']
+        s_copy[new_key]['event'] = value['event']
+        s_copy[new_key]['tweet_id'] = value['tweet_id']
+        s_copy[new_key]['sentence'] = generate_dict[key]
+        print(s_copy[new_key]['sentence'])
+        s_copy[new_key]['reply_to'] = value['reply_to']
+        s_copy[new_key]['created_at'] = value['created_at']
+    
+    gen_target = MetaMCMCDataset()
+    gen_target.data = s_copy
+    gen_target.dataclear()
+    event_dir = os.path.join(data_dir1,"qwen_gen_from_source",test_event_name)
+    print(event_dir)
+    gen_target.Caches_Data(event_dir)
+    
 
 
 

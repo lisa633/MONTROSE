@@ -229,7 +229,6 @@ class MetaMCMCDataset(FastBiGCNDataset):
 
             rst[i].read_indexs = np.arange(len(real_idxs))
 
-        print(rst[0][0])
         return rst
     
 

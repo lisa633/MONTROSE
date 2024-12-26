@@ -40,34 +40,43 @@ class Node:
         for node_id in self.parent:
             parent_node_list.append(all_node_list[node_id])
         return parent_node_list[0]
+    
+    def compute_score(self,data):
+        batch = source_domain.collate_fn([data])
+        with torch.no_grad():
+            vecs = self.model.Batch2Vecs(batch)
+        logits = self.discriminator(vecs)
+        domain_loss = F.cross_entropy(logits, batch[-1]) 
+        return domain_loss
 
     def expand(self):
 
         prompt_sent = self.copy_data.text[self.index]
+        target_sent = random.choice(unlabeled_target[random.randint(0,len(unlabeled_target.data_ID))].text)
         try:
             completion = client.chat.completions.create(
             model="qwen-plus", # 模型列表：https://help.aliyun.com/zh/model-studio/getting-started/models
             messages=[
-                {'role': 'system', 'content': 'You are a twitter user. You can rephrase twitter-form reply when given a twitter'},
-                {'role': 'user', 'content': 'here is the twitter:'+prompt_sent+'Please rephrase it a twitter user without \'Note\''}],
+                {'role': 'system', 'content': 'You are a twitter user. You can rephrase twitter-form reply to make it like replies in the target domain'},
+                {'role': 'user', 'content': 'here is an example in target domain: '+target_sent+' The given twitter is:'+prompt_sent+'Please rephrase the given twitter to make it a reply in the target domain without \'Note\''}],
             )
             generate_sents = completion.choices[0].message.content
         except:
             generate_sents = prompt_sent
-            self.copy_data.text[self.index] = generate_sents
-        batch = source_domain.collate_fn([self.copy_data])
-        with torch.no_grad():
-            vecs = model.Batch2Vecs(batch)
-        logits = discriminator(vecs)
-        domain_loss = F.cross_entropy(logits, batch[-1])    
-        self.score = -domain_loss
+        self.copy_data.text[self.index] = generate_sents
+        self.score = self.compute_score(self.copy_data)
+       
 
-    def select(self,all_node_list):
-        best_child = None
+    def select(self,root_node, all_node_list):
         best_value = float('-inf')
-        child_node_list = node.get_child_node(all_node_list)
-        for child in child_node_list:   
-            value = child.score/child.visits + 2*math.sqrt(2*math.log(self.visits)/child.visits)
+        child_node_list = self.get_child_node(all_node_list)
+        best_child = child_node_list[0]
+        for child in child_node_list:
+            if child.visits > 0:
+                value = child.score/child.visits + 2*math.sqrt(2*math.log(self.visits)/child.visits)
+            else:
+                value = float('inf')
+#             print("value:",value)
             if value > best_value:
                 best_value = value
                 best_child = child
@@ -79,6 +88,7 @@ class Node:
         parent = self.get_parent_node(all_node_list)
         parent.visits += 1
         parent.score += self.score
+#         print(len(parent.parent))
         while len(parent.parent) != 0:
             parent = parent.get_parent_node(all_node_list)
             parent.visits += 1
@@ -86,18 +96,41 @@ class Node:
 
 
 def mcts(root_node, all_node_list, iterations):
-    for _ in range(iterations):
+    generate_text = root_node.data["text"]
+    print("original_text:",generate_text)
+    best_score = root_node.compute_score(root_node.data)
+    print("init score:",best_score)
+    
+    for i in range(iterations):
+        print("step:",i)
         explore = []
+        explore.append(root_node.index)
+        root_node.state = True
         node = root_node
-        node.copy_data = copy.deepcopy(root_node.data)
-        while len(node.children) > 0 and node.state == False:
-            node = node.select(all_node_list)
-            explore.append(node)
-        node.expand(all_node_list)
-        node.backpropagate()
+        node.copy_data = copy.deepcopy(root_node.copy_data)
+        print("process:",node.copy_data["text"])
+        while len(node.children) > 0 and node.state == True:
+#             print(len(node.children))
+#             print(node.state)
+            node = node.select(root_node,all_node_list)
+#             print(node.index)
+            explore.append(node.index)
+        print("explore:",explore)
+        node.expand()
+        node.backpropagate(all_node_list)
+        score = node.compute_score(node.copy_data)
+        print("after score:",score)
+
+        if score < best_score:
+            print("modify save!")
+            best_score = score
+            generate_text = node.copy_data["text"]
+            root_node.copy_data = node.copy_data
+            
+    return generate_text
+            
         
         
-    return root_node.children[0]
 
 class SentBert(nn.Module):
     def __init__(self, bertPath):
@@ -348,14 +381,14 @@ def obtain_Transformer(bertPath, device=None):
 
 
 if __name__ == '__main__':
-    data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
+    data_dir1 = r"../../autodl-tmp/data/test/"
     data_dir2 = r"../../autodl-tmp/data/pheme-rnr-dataset/qwen_gen_new/ferguson"
     os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
     # for domain_ID in range(5):
     domain_ID = 1
-    fewShotCnt = 100
+    fewShotCnt = 0
     source_events = [os.path.join(data_dir1, dname)
                      for idx, dname in enumerate(events_list) if idx != domain_ID]
     # source_events = [os.path.join(data_dir1, dname)
@@ -364,7 +397,7 @@ if __name__ == '__main__':
     test_event_name = events_list[domain_ID]
     #train_set, labeled_target, val_set, test_set, unlabeled_target
     source_domain, labeled_target, val_set, test_set, unlabeled_target = load_data(
-        source_events, target_events, fewShotCnt, unlabeled_ratio=0.3
+        source_events, target_events, fewShotCnt, unlabeled_ratio=0
     )
     bertPath = r"../../autodl-tmp/bert_en"
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
@@ -382,6 +415,9 @@ if __name__ == '__main__':
         discriminator.load_state_dict(
             torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
         )
+    else:
+        for epoch in range(3):
+            discriminator(model, source_domain, gen_unlabeled, max_step=500)
     source_data_copy = copy.deepcopy(source_domain)
 
     for i in range(len(source_data_copy.data_ID)):
@@ -400,7 +436,7 @@ if __name__ == '__main__':
         for node in class_node_list:
             if len(node.parent)==0:
                 root_node = node
-        mcts(root_node, class_node_list, 100)
+        generate_sent = mcts(root_node, class_node_list, 10)
 
 
 

@@ -398,7 +398,7 @@ if __name__ == '__main__':
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
     # for domain_ID in range(5):
-    domain_ID = 0
+    domain_ID = 1
     fewShotCnt = 0
     source_events = [os.path.join(data_dir1, dname)
                      for idx, dname in enumerate(events_list) if idx != domain_ID]

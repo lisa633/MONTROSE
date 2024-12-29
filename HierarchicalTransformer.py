@@ -3,6 +3,7 @@ import pickle
 import re
 import sys, os, dgl, random
 import time
+from functools import reduce
 
 from transformers import TextGenerationPipeline, GPT2Tokenizer, GPT2LMHeadModel, pipeline
 
@@ -36,7 +37,7 @@ quantities = [
 from prefetch_generator import background
 from BaseModel.BiGCN_Utils.RumorDetectionBasic import BaseEvaluator
 from BaseModel.BiGCN_Utils.GraphRumorDect import BiGCNRumorDetecV2
-from Data.BiGCN_Dataloader import BiGCNTwitterSet, FastBiGCNDataset, MetaMCMCDataset, load_data_all, load_data_twitter15
+from Data.BiGCN_Dataloader import BiGCNTwitterSet, FastBiGCNDataset, MetaMCMCDataset, load_data_all, load_data_twitter15, Merge_data
 from BaseModel.modeling_bert import *
 from transformers.models.bert import BertConfig, BertTokenizer
 import torch, torch.nn as nn
@@ -1473,12 +1474,12 @@ class DgMSTF_Trainer(MetaLearningFramework):
 
 if __name__ == '__main__':
     data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
-    data_dir2 = r"../../autodl-tmp/data/pheme-rnr-dataset/qwen_gen_new/ferguson"
+    
     os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
     # for domain_ID in range(5):
-    domain_ID = 1
+    domain_ID = 0
     fewShotCnt = 100
     source_events = [os.path.join(data_dir1, dname)
                      for idx, dname in enumerate(events_list) if idx != domain_ID]
@@ -1486,30 +1487,33 @@ if __name__ == '__main__':
     #                  for idx, dname in enumerate(events_list)]
     target_events = [os.path.join(data_dir1, events_list[domain_ID])]
     test_event_name = events_list[domain_ID]
+    data_dir2 = r"../../autodl-tmp/data/pheme-rnr-dataset/qwen_gen_from_source/" + test_event_name
     #train_set, labeled_target, val_set, test_set, unlabeled_target
     source_domain, labeled_target, val_set, test_set, unlabeled_target = load_data(
         source_events, target_events, fewShotCnt, unlabeled_ratio=0.3
     )
     
-    labeled_target_li = [labeled_target.data_ID[i] for i in range(len(labeled_target.data_ID))]
-    print(labeled_target_li)
-    unlabeled_target_li = [unlabeled_target.data_ID[i] for i in range(len(unlabeled_target.data_ID))]
-    print(unlabeled_target_li)
-    
+#     labeled_target_li = [labeled_target.data_ID[i] for i in range(len(labeled_target.data_ID))]
+#     print(labeled_target_li)
+#     unlabeled_target_li = [unlabeled_target.data_ID[i] for i in range(len(unlabeled_target.data_ID))]
+#     print(unlabeled_target_li)
+    print(data_dir2)
     gen_dataset = MetaMCMCDataset()
     gen_dataset.load_data_fast(data_dir2)
+    data_list = [unlabeled_target,gen_dataset]
+    new_unlabeled_target = reduce(Merge_data,data_list)
     
-    gen_labeled = MetaMCMCDataset()
-    for li in labeled_target_li:
-        gen_labeled.data[li] = gen_dataset.data[li]
+#     gen_labeled = MetaMCMCDataset()
+#     for li in labeled_target_li:
+#         gen_labeled.data[li] = gen_dataset.data[li]
         
-    gen_labeled.dataclear()
+#     gen_labeled.dataclear()
     
-    gen_unlabeled = MetaMCMCDataset()
-    for li in unlabeled_target_li:
-        gen_unlabeled.data[li] = gen_dataset.data[li]
+#     gen_unlabeled = MetaMCMCDataset()
+#     for li in unlabeled_target_li:
+#         gen_unlabeled.data[li] = gen_dataset.data[li]
         
-    gen_unlabeled.dataclear()
+#     gen_unlabeled.dataclear()
 
 
     logDir = f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/"
@@ -1536,7 +1540,7 @@ if __name__ == '__main__':
         else:
             model.save_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")    
 
-    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=5,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=24, epsilon_ball=5e-5,gStep=10, Lambda=0.1, G_lr = 5e-5, D_lr=2e-4, valid_every=10, dStep=10) 
+    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=5,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=32, epsilon_ball=5e-2, Lambda=0.1, G_lr = 5e-3, D_lr=2e-4, valid_every=10, dStep=20) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
@@ -1550,10 +1554,10 @@ if __name__ == '__main__':
             torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
         )
     else:
-        for epoch in range(2):
-            trainer.optimizeDiscriminator(model, source_domain, gen_unlabeled, max_step=500)
+        for epoch in range(4):
+            trainer.optimizeDiscriminator(model, source_domain, new_unlabeled_target, max_step=500)
         torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
-    trainer.Training(model, source_domain, gen_unlabeled, dev_eval, te_eval, max_iterate=100)     
+    trainer.Training(model, source_domain, new_unlabeled_target, dev_eval, te_eval, max_iterate=100)     
 
 
     

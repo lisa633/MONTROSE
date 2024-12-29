@@ -26,65 +26,6 @@ event_dics = {
     'sydneysiege': 4
 }
 
-def str2timestamp(str_time):
-    month = {'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
-             'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
-             'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'}
-    ss = str_time.split(' ')
-    m_time = ss[5] + "-" + month[ss[1]] + '-' + ss[2] + ' ' + ss[3]
-    d = datetime.datetime.strptime(m_time, "%Y-%m-%d %H:%M:%S")
-    t = d.timetuple()
-    timeStamp = int(time.mktime(t))
-    return timeStamp
-
-def scan_dir(files,dir_name):
-    for item in os.walk(dir_name):
-        if len(item[2]) == 0:
-            # no file in this dir
-            pass
-        else:
-            for fname in item[2]:
-                tmp_path = os.path.join(item[0], fname)
-                if tmp_path[-5:] == ".json": # is a json file
-                    files.append(tmp_path)
-                else:
-                    print("Warning: non json format file exists in %s : %s" % (dir_name, tmp_path))
-
-def twitter_data_process(files):
-    # print("files:",files)
-    data = {}
-    for file_path in files:
-        print(file_path)
-        twitter_dict = {}
-        ss = file_path.split("/")
-#         print(ss)
-        origin_data = json.load(open(file_path, mode="r", encoding="utf-8"))
-        # 'Wed Jan 07 11:14:08 +0000 2015'
-        if origin_data['lang'] == 'en':
-            twitter_dict[ss[-3]] = {
-                            'topic_label': event_dics[ss[-5]],
-                            'label': ss[-4],
-                            'event': ss[-5],
-                            'sentence': [origin_data['text'].lower()],
-                            'created_at': [str2timestamp(origin_data['created_at'])],
-                            'tweet_id': [origin_data['id']],
-                            "reply_to": [origin_data['in_reply_to_status_id']]
-                           }
-            
-            for key in twitter_dict.keys():  # use temporary data to organize the final whole data
-                if key in data:
-                    if twitter_dict[key]['tweet_id'][0] in data[key]['tweet_id']:
-                        pass  # sometimes, there are dumlicated posts
-                    else:
-                        data[key]['tweet_id'].append(twitter_dict[key]['tweet_id'][0])
-                        data[key]['sentence'].append(twitter_dict[key]['sentence'][0])
-                        data[key]['created_at'].append(twitter_dict[key]['created_at'][0])
-                        data[key]['reply_to'].append(twitter_dict[key]['reply_to'][0])
-                        
-                else:
-                    data[key] = twitter_dict[key]
-
-    return data
 
 class Node:
     def __init__(self,index,parent,children,data,model,discriminator):
@@ -121,8 +62,8 @@ class Node:
     def expand(self):
 
         prompt_sent = self.copy_data.text[self.index]
-        # target_sent = random.choice(unlabeled_target[random.randint(0,len(unlabeled_target.data_ID))].text)
-        target_sent = "Black teenage boys are not men. They are children. Stop referring to a 17 year old as a man. You are killing children. #ferguson"
+        target_sent = random.choice(unlabeled_target[random.randint(0,len(unlabeled_target.data_ID)-1)].text)
+#         target_sent = "Black teenage boys are not men. They are children. Stop referring to a 17 year old as a man. You are killing children. #ferguson"
         try:
             completion = client.chat.completions.create(
             model="qwen-plus", # 模型列表：https://help.aliyun.com/zh/model-studio/getting-started/models
@@ -143,10 +84,9 @@ class Node:
         best_child = child_node_list[0]
         for child in child_node_list:
             if child.visits > 0:
-                value = child.score/child.visits + 2*math.sqrt(2*math.log(self.visits)/child.visits)
+                value = -child.score/child.visits + 2*math.sqrt(2*math.log(self.visits)/child.visits)
             else:
                 value = float('inf')
-#             print("value:",value)
             if value > best_value:
                 best_value = value
                 best_child = child
@@ -155,14 +95,15 @@ class Node:
 
     def backpropagate(self,all_node_list):
         self.visits += 1
-        parent = self.get_parent_node(all_node_list)
-        parent.visits += 1
-        parent.score += self.score
-#         print(len(parent.parent))
-        while len(parent.parent) != 0:
-            parent = parent.get_parent_node(all_node_list)
+        if len(self.parent) > 0:
+            parent = self.get_parent_node(all_node_list)
             parent.visits += 1
             parent.score += self.score
+    #         print(len(parent.parent))
+            while len(parent.parent) != 0:
+                parent = parent.get_parent_node(all_node_list)
+                parent.visits += 1
+                parent.score += self.score
 
 
 def mcts(root_node, all_node_list, iterations):
@@ -172,27 +113,27 @@ def mcts(root_node, all_node_list, iterations):
     print("init score:",best_score)
     
     for i in range(iterations):
-        print("step:",i)
+#         print("step:",i)
         explore = []
         explore.append(root_node.index)
         root_node.state = True
         node = root_node
         node.copy_data = copy.deepcopy(root_node.copy_data)
-        print("process:",node.copy_data["text"])
+#         print("process:",node.copy_data["text"])
         while len(node.children) > 0 and node.state == True:
 #             print(len(node.children))
 #             print(node.state)
             node = node.select(root_node,all_node_list)
 #             print(node.index)
             explore.append(node.index)
-        print("explore:",explore)
+#         print("explore:",explore)
         node.expand()
         node.backpropagate(all_node_list)
         score = node.compute_score(node.copy_data)
-        print("after score:",score)
+#         print("after score:",score)
 
         if score < best_score:
-            print("modify save!")
+#             print("modify save!")
             best_score = score
             generate_text = node.copy_data["text"]
             root_node.copy_data = node.copy_data
@@ -451,13 +392,13 @@ def obtain_Transformer(bertPath, device=None):
 
 
 if __name__ == '__main__':
-    data_dir1 = r"../../autodl-tmp/data/test/"
-    data_dir2 = r"../../autodl-tmp/data/pheme-rnr-dataset/qwen_gen_new/ferguson"
+    data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
+    
     os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
     # for domain_ID in range(5):
-    domain_ID = 1
+    domain_ID = 0
     fewShotCnt = 0
     source_events = [os.path.join(data_dir1, dname)
                      for idx, dname in enumerate(events_list) if idx != domain_ID]
@@ -467,7 +408,7 @@ if __name__ == '__main__':
     test_event_name = events_list[domain_ID]
     #train_set, labeled_target, val_set, test_set, unlabeled_target
     source_domain, labeled_target, val_set, test_set, unlabeled_target = load_data(
-        source_events, target_events, fewShotCnt, unlabeled_ratio=0
+        source_events, target_events, fewShotCnt, unlabeled_ratio=0.3
     )
     bertPath = r"../../autodl-tmp/bert_en"
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
@@ -485,20 +426,18 @@ if __name__ == '__main__':
         discriminator.load_state_dict(
             torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
         )
-    else:
-        for epoch in range(3):
-            discriminator(model, source_domain, unlabeled_target, max_step=500)
-    source_data_copy = copy.deepcopy(source_domain)
+    gen_target = MetaMCMCDataset()
+    gen_target.data = {}
+#     gen_target = copy.deepcopy(source_domain)
 
-    generate_dict = {}
-
-    for i,d_ID in enumerate(source_data_copy.data_ID):
-        data = source_data_copy[i]
+    for i,d_ID in enumerate(source_domain.data_ID[:1000]):
+        gen_target.data[d_ID] = source_domain.data[d_ID]
+        data = source_domain[i]
         tree = data.g_TD
         nodes = tree.nodes()
-        print("nodes:",nodes)
+#         print("nodes:",nodes)
         s,d = tree.remove_self_loop().edges()
-        print("s,d:",s,d)
+#         print("s,d:",s,d)
         nodes_list = nodes.cpu().tolist()
         source = s.cpu().tolist()
         des = d.cpu().tolist()
@@ -508,37 +447,26 @@ if __name__ == '__main__':
         for node in class_node_list:
             if len(node.parent)==0:
                 root_node = node
-        generate_sent = mcts(root_node, class_node_list, 10)
-        generate_dict[d_ID] = generate_sent
-   
-    files = []
-    for event_path in source_events:
-        scan_dir(files, event_path)
+        generate_sent = mcts(root_node, class_node_list, 30)
+        print("generate_sent:",generate_sent)
+        gen_target.data[d_ID]['text'] = [s.split(" ") for s in generate_sent]
+        gen_target.data[d_ID]['topic_label'] = domain_ID
+#         gen_target.data[d_ID]['label'] = source_domain.data[d_ID]['label']
+#         gen_target.data[d_ID]['event'] = source_domain.data[d_ID]['event']
+#         gen_target.data[d_ID]['sentnece'] = generate_sent
+#         gen_target.data[d_ID]['created_at'] = source_domain.data[d_ID]['created_at']
+#         gen_target.data[d_ID]['reply_to'] = source_domain.data[d_ID]['reply_to']
+#         gen_target.data[d_ID]['tweet_id'] = source_domain.data[d_ID]['tweet_id']
 
-    print(files[0])
-
-
-    source_data = twitter_data_process(files)
-    s_copy = copy.deepcopy(source_data)
-
-    for key,value in source_data.items():
-        new_key = int(str(key)+str(random.randint(0, 9)))
-        s_copy[new_key] = {}
-        s_copy[new_key]['topic_label'] = event_dics[test_event_name]
-        s_copy[new_key]['label'] = value['label']
-        s_copy[new_key]['event'] = value['event']
-        s_copy[new_key]['tweet_id'] = value['tweet_id']
-        s_copy[new_key]['sentence'] = generate_dict[key]
-        print(s_copy[new_key]['sentence'])
-        s_copy[new_key]['reply_to'] = value['reply_to']
-        s_copy[new_key]['created_at'] = value['created_at']
-    
-    gen_target = MetaMCMCDataset()
-    gen_target.data = s_copy
     gen_target.dataclear()
+        
+        
     event_dir = os.path.join(data_dir1,"qwen_gen_from_source",test_event_name)
     print(event_dir)
     gen_target.Caches_Data(event_dir)
+    
+    
+
     
 
 

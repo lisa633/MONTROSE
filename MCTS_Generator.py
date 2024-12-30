@@ -50,21 +50,21 @@ class Node:
             parent_node_list.append(all_node_list[node_id])
         return parent_node_list[0]
     
-    def compute_score(self,data):
-        batch = source_domain.collate_fn([data])
+    def compute_score(self,temp_data,model,discriminator):
+        batch = source_domain.collate_fn([temp_data])
         with torch.no_grad():
-            vecs = self.model.Batch2Vecs(batch)
-        logits = self.discriminator(vecs)
+            vecs = model.Batch2Vecs(batch)
+        logits = discriminator(vecs)
         value = logits[0, domain_ID].item()
         print("logits:",logits)
         print("value:",value)
         return value
     
-    def compute_loss(self,data):
-        batch = source_domain.collate_fn([data])
+    def compute_loss(self,temp_data,model,discriminator):
+        batch = source_domain.collate_fn([temp_data])
         with torch.no_grad():
-            vecs = self.model.Batch2Vecs(batch)
-        logits = self.discriminator(vecs)
+            vecs = model.Batch2Vecs(batch)
+        logits = discriminator(vecs)
 #         print("logits:",logits)
         topic_label = torch.tensor([domain_ID],device=torch.device('cuda'))
 #         print("topic_label:",topic_label)
@@ -72,9 +72,9 @@ class Node:
 #         print("domain_loss:",domain_loss)
         return domain_loss
 
-    def expand(self):
+    def expand(self,temp_data,model,discriminator):
 
-        prompt_sent = self.copy_data.text[self.index]
+        prompt_sent = temp_data.text[self.index]
 #         target_sent = random.choice(unlabeled_target[random.randint(0,len(unlabeled_target.data_ID)-1)].text)
         target_sent = "Black teenage boys are not men. They are children. Stop referring to a 17 year old as a man. You are killing children. #ferguson"
         try:
@@ -87,11 +87,11 @@ class Node:
             generate_sents = completion.choices[0].message.content
         except:
             generate_sents = prompt_sent
-        self.copy_data.text[self.index] = generate_sents
-        self.score = self.compute_score(self.copy_data)
+        temp_data.text[self.index] = generate_sents
+        self.score = self.compute_score(temp_data,model,discriminator)
        
 
-    def select(self,root_node, all_node_list):
+    def select(self,all_node_list):
         best_value = float('-inf')
         child_node_list = self.get_child_node(all_node_list)
         best_child = child_node_list[0]
@@ -155,15 +155,14 @@ def PseudoLabeling(model, dataset:PseudoDataset, temperature = 1.0):
         confidence, label_idx = torch.max(logits, dim=1) #confidence保存最大概率，label_idx为该概率对应的类别
         print("confidence:",confidence)
         print("label_idx:",label_idx)
-        eye = torch.eye(self.class_num, device=torch.device('cuda')) #创建一个形状为 (self.class_num, self.class_num) 的单位矩阵
+        class_num = 5
+        eye = torch.eye(class_num, device=torch.device('cuda')) #创建一个形状为 (self.class_num, self.class_num) 的单位矩阵
         weak_label =eye[label_idx].cpu().tolist() #将最高置信度的类别转化为one-hot形式作为伪标签
         dataset.initLabel(weak_label)
         dataset.initConfidence(confidence.cpu().tolist())
 
 
-def mcts(root_node, all_node_list, iterations):
-    
-    temp_data = root_node.data
+def mcts(root_node, all_node_list, iterations, temp_data, model, discriminator):
     best_score = root_node.compute_loss(temp_data)
     generate_text = temp_data["text"]
     print("original_text:",generate_text)
@@ -171,6 +170,7 @@ def mcts(root_node, all_node_list, iterations):
     
     for i in range(iterations):
         print("step:",i)
+        origin_data = copy.deepcopy(temp_data)
         explore = []
         explore.append(root_node.index)
         root_node.state = True
@@ -180,20 +180,22 @@ def mcts(root_node, all_node_list, iterations):
         while len(node.children) > 0 and node.state == True:
 #             print(len(node.children))
 #             print(node.state)
-            node = node.select(root_node,all_node_list)
+            node = node.select(all_node_list)
 #             print(node.index)
             explore.append(node.index)
         print("explore:",explore)
-        node.expand()
+        node.expand(temp_data,model,discriminator)
         node.backpropagate(all_node_list)
-        score = node.compute_loss(node.copy_data)
+        score = node.compute_loss(temp_data)
         print("after score:",score)
 
         if score < best_score:
             print("modify save!")
             best_score = score
-            generate_text = node.copy_data["text"]
-            root_node.copy_data = node.copy_data
+            generate_text = temp_data["text"]
+        else:
+            temp_data = origin_data
+            
             
     return generate_text
             
@@ -490,8 +492,8 @@ if __name__ == '__main__':
 
     for i,d_ID in enumerate(source_domain.data_ID):
         gen_target.data[d_ID] = source_domain.data[d_ID]
-        data = source_domain[i]
-        tree = data.g_TD
+        temp_data = source_domain[i]
+        tree = temp_data.g_TD
         nodes = tree.nodes()
 #         print("nodes:",nodes)
         s,d = tree.remove_self_loop().edges()
@@ -501,11 +503,11 @@ if __name__ == '__main__':
         des = d.cpu().tolist()
         child_lists = [[des[k] for k, nodes_id in enumerate(source) if nodes_id == n] for n in nodes_list]
         parent_lists = [[source[j] for j, nodes_id in enumerate(des) if nodes_id == n] for n in nodes_list]
-        class_node_list = [Node(s,parent_lists[s],child_lists[s],data,model,discriminator) for s,n in enumerate(nodes_list)]
+        class_node_list = [Node(s,parent_lists[s],child_lists[s]) for s,n in enumerate(nodes_list)]
         for node in class_node_list:
             if len(node.parent)==0:
                 root_node = node
-        generate_sent = mcts(root_node, class_node_list, 30)
+        generate_sent = mcts(root_node, class_node_list, 30, temp_data, model, discriminator)
         print("generate_sent:",generate_sent)
         gen_target.data[d_ID]['text'] = [s.split(" ") for s in generate_sent]
         gen_target.data[d_ID]['topic_label'] = domain_ID

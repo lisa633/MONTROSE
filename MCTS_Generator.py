@@ -26,19 +26,18 @@ event_dics = {
     'sydneysiege': 4
 }
 
+domain_ID = 1
+
 
 class Node:
-    def __init__(self,index,parent,children,data,model,discriminator):
+    def __init__(self,index,parent,children):
         self.index = index
         self.parent = parent
         self.children = children
-        self.data = data
-        self.model = model
-        self.discriminator = discriminator
         self.state = False
         self.visits = 0
         self.score = 0.0
-        self.copy_data = copy.deepcopy(data)
+        
     def get_child_node(self,all_node_list):
         child_node_list = []
         for node_id in self.children:
@@ -56,9 +55,21 @@ class Node:
         with torch.no_grad():
             vecs = self.model.Batch2Vecs(batch)
         logits = self.discriminator(vecs)
+        value = logits[0, domain_ID].item()
         print("logits:",logits)
-        print("topic_label:",batch[-1])
-        domain_loss = F.cross_entropy(logits, batch[-1]) 
+        print("value:",value)
+        return value
+    
+    def compute_loss(self,data):
+        batch = source_domain.collate_fn([data])
+        with torch.no_grad():
+            vecs = self.model.Batch2Vecs(batch)
+        logits = self.discriminator(vecs)
+#         print("logits:",logits)
+        topic_label = torch.tensor([domain_ID],device=torch.device('cuda'))
+#         print("topic_label:",topic_label)
+        domain_loss = F.cross_entropy(logits, topic_label) 
+#         print("domain_loss:",domain_loss)
         return domain_loss
 
     def expand(self):
@@ -86,7 +97,7 @@ class Node:
         best_child = child_node_list[0]
         for child in child_node_list:
             if child.visits > 0:
-                value = -child.score/child.visits + 2*math.sqrt(2*math.log(self.visits)/child.visits)
+                value = child.score/child.visits + 2*math.sqrt(2*math.log(self.visits)/child.visits)
             else:
                 value = float('inf')
             if value > best_value:
@@ -106,16 +117,60 @@ class Node:
                 parent = parent.get_parent_node(all_node_list)
                 parent.visits += 1
                 parent.score += self.score
+                
+class PseudoDataset(MetaMCMCDataset):
+    expand_idxs:List=None # indicating which instances will be used to expand the meta validation set
+    expand_logits:List=None # confidence on the expanded examples
+    valid_indexs:List=None # some pseudo instances will be used to expand the meta validation set, we use a list
+                            # 'valid_indexs' to mark which instances are preserved for constrcuting meta training set.
+    logits:torch.Tensor=None # confidence on all unlabeled samples
+    instance_weights:torch.Tensor=None
+
+    def update_indexs(self, new_indexs:List):
+        if self.expand_idxs is None:
+            self.valid_indexs = new_indexs
+        else:
+            self.valid_indexs = [idx for idx in new_indexs if not idx in self.expand_idxs]
+
+    def reinit_indexs(self):
+        new_idxs = [*range(len(self._label))]
+        return self.update_indexs(new_idxs)
+                
+def PseudoLabeling(model, dataset:PseudoDataset, temperature = 1.0):
+    TD_graphs = [copy.deepcopy(dataset[idxs].g_TD).add_self_loop() for idxs in range(len(dataset))]
+    BU_graphs = [copy.deepcopy(dataset[idxs].g_BU).add_self_loop() for idxs in range(len(dataset))]
+    texts = [["".join(dataset[idxs]["text"][j]) for j in range(dataset[idxs].data_len)] for idxs in range(len(dataset))]
+
+    num_nodes = [g.num_nodes() for g in TD_graphs]
+    big_g_TD = dgl.batch(TD_graphs)
+    big_g_BU = dgl.batch(BU_graphs)
+    A_TD = big_g_TD.adjacency_matrix().to_dense().to(torch.device('cuda'))
+    A_BU = big_g_BU.adjacency_matrix().to_dense().to(torch.device('cuda'))
+    with torch.no_grad():
+        logits = model.predict(
+            (texts, num_nodes, A_TD, A_BU),
+            temperature=temperature
+        )
+        print("logits:",logits)
+        confidence, label_idx = torch.max(logits, dim=1) #confidence保存最大概率，label_idx为该概率对应的类别
+        print("confidence:",confidence)
+        print("label_idx:",label_idx)
+        eye = torch.eye(self.class_num, device=torch.device('cuda')) #创建一个形状为 (self.class_num, self.class_num) 的单位矩阵
+        weak_label =eye[label_idx].cpu().tolist() #将最高置信度的类别转化为one-hot形式作为伪标签
+        dataset.initLabel(weak_label)
+        dataset.initConfidence(confidence.cpu().tolist())
 
 
 def mcts(root_node, all_node_list, iterations):
-    generate_text = root_node.data["text"]
+    
+    temp_data = root_node.data
+    best_score = root_node.compute_loss(temp_data)
+    generate_text = temp_data["text"]
     print("original_text:",generate_text)
-    best_score = root_node.compute_score(root_node.data)
     print("init score:",best_score)
     
     for i in range(iterations):
-#         print("step:",i)
+        print("step:",i)
         explore = []
         explore.append(root_node.index)
         root_node.state = True
@@ -128,14 +183,14 @@ def mcts(root_node, all_node_list, iterations):
             node = node.select(root_node,all_node_list)
 #             print(node.index)
             explore.append(node.index)
-#         print("explore:",explore)
+        print("explore:",explore)
         node.expand()
         node.backpropagate(all_node_list)
-        score = node.compute_score(node.copy_data)
-#         print("after score:",score)
+        score = node.compute_loss(node.copy_data)
+        print("after score:",score)
 
         if score < best_score:
-#             print("modify save!")
+            print("modify save!")
             best_score = score
             generate_text = node.copy_data["text"]
             root_node.copy_data = node.copy_data
@@ -401,7 +456,7 @@ if __name__ == '__main__':
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
     # for domain_ID in range(5):
-    domain_ID = 1
+
     fewShotCnt = 0
     source_events = [os.path.join(data_dir1, dname)
                      for idx, dname in enumerate(events_list) if idx != domain_ID]
@@ -462,11 +517,13 @@ if __name__ == '__main__':
 #         gen_target.data[d_ID]['tweet_id'] = source_domain.data[d_ID]['tweet_id']
 
     gen_target.dataclear()
+    
+    PseudoLabeling(model, gen_target)
         
         
-    event_dir = os.path.join(data_dir1,"qwen_gen_from_source",test_event_name)
-    print(event_dir)
-    gen_target.Caches_Data(event_dir)
+#     event_dir = os.path.join(data_dir1,"qwen_gen_from_source",test_event_name)
+#     print(event_dir)
+#     gen_target.Caches_Data(event_dir)
     
     
 

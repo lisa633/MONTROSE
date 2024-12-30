@@ -56,14 +56,16 @@ class Node:
         with torch.no_grad():
             vecs = self.model.Batch2Vecs(batch)
         logits = self.discriminator(vecs)
+        print("logits:",logits)
+        print("topic_label:",batch[-1])
         domain_loss = F.cross_entropy(logits, batch[-1]) 
         return domain_loss
 
     def expand(self):
 
         prompt_sent = self.copy_data.text[self.index]
-        target_sent = random.choice(unlabeled_target[random.randint(0,len(unlabeled_target.data_ID)-1)].text)
-#         target_sent = "Black teenage boys are not men. They are children. Stop referring to a 17 year old as a man. You are killing children. #ferguson"
+#         target_sent = random.choice(unlabeled_target[random.randint(0,len(unlabeled_target.data_ID)-1)].text)
+        target_sent = "Black teenage boys are not men. They are children. Stop referring to a 17 year old as a man. You are killing children. #ferguson"
         try:
             completion = client.chat.completions.create(
             model="qwen-plus", # 模型列表：https://help.aliyun.com/zh/model-studio/getting-started/models
@@ -392,7 +394,8 @@ def obtain_Transformer(bertPath, device=None):
 
 
 if __name__ == '__main__':
-    data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
+#     data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
+    data_dir1 = r"../../autodl-tmp/data/test/"
     
     os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
 
@@ -430,7 +433,7 @@ if __name__ == '__main__':
     gen_target.data = {}
 #     gen_target = copy.deepcopy(source_domain)
 
-    for i,d_ID in enumerate(source_domain.data_ID[:1000]):
+    for i,d_ID in enumerate(source_domain.data_ID):
         gen_target.data[d_ID] = source_domain.data[d_ID]
         data = source_domain[i]
         tree = data.g_TD

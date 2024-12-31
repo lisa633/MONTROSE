@@ -65,7 +65,7 @@ def compute_loss(temp_dict,model,discriminator):
     gen_data.data[temp_id] = temp_dict
     gen_data.dataclear()
 
-    batch = source_domain.collate_fn([gen_data])
+    batch = source_domain.collate_fn([gen_data[0]])
     with torch.no_grad():
         vecs = model.Batch2Vecs(batch)
     logits = discriminator(vecs)
@@ -83,7 +83,7 @@ def compute_score(temp_dict,model,discriminator):
     temp_id = str(timestamp)
     gen_data.data[temp_id] = temp_dict
     gen_data.dataclear()
-    batch = source_domain.collate_fn([gen_data])
+    batch = source_domain.collate_fn([gen_data[0]])
     with torch.no_grad():
         vecs = model.Batch2Vecs(batch)
     logits = discriminator(vecs)
@@ -96,7 +96,7 @@ def compute_confidence(temp_dict,model,discriminator):
     temp_id = str(timestamp)
     gen_data.data[temp_id] = temp_dict
     gen_data.dataclear()
-    batch = source_domain.collate_fn([gen_data])
+    batch = source_domain.collate_fn([gen_data[0]])
     with torch.no_grad():
         vecs = model.Batch2Vecs(batch)
     probs = discriminator(vecs).softmax(dim=1)
@@ -172,7 +172,7 @@ class Node:
         except:
             generate_sents = ""
         
-        
+        print("generate_sent:",generate_sents)
         if len(generate_sents) > 0:
             start_date = datetime.datetime(2022,1,1)
             end_date = datetime.datetime(2022,12,31)
@@ -184,16 +184,19 @@ class Node:
             temp_dict["sentence"].append(generate_sents)
             temp_dict["text"].append([s.split(" ") for s in generate_sents])
             data_len = len(temp_dict["sentence"])
+            print("data_len:",data_len)
+            print("tweet_id_len:",len(temp_dict["tweet_id"]))
             if len(temp_dict["tweet_id"]) > data_len:
-                temp_dict["tween_id"][data_len] = new_id
-                temp_dict["reply_to"][data_len] = temp_dict["tween_id"][self.index]
+                temp_dict["tweet_id"][data_len] = new_id
+                temp_dict["reply_to"][data_len] = temp_dict["tweet_id"][self.index]
                 temp_dict["created_at"][data_len]= create_time
             else:
-                temp_dict["tween_id"].append(new_id)
-                temp_dict["reply_to"].append(["tween_id"][self.index])
+                temp_dict["tweet_id"].append(new_id)
+                temp_dict["reply_to"].append(temp_dict["tweet_id"][self.index])
                 temp_dict["created_at"].append(create_time)
 
             new_node = Node(data_len-1,[self.index],[])
+            self.children.append(data_len-1)
             all_node_list.append(new_node)
 
         self.score = compute_score(temp_dict,model,discriminator)
@@ -304,6 +307,7 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
     for i in range(iterations):
         print("step:",i)
         origin_dict = copy.deepcopy(temp_dict)
+        print("origin_dict:",origin_dict)
         explore = []
         node = root_node
 
@@ -313,6 +317,7 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
             node = node.select(all_node_list)
 #             print(node.index)
             explore.append(node.index)
+        print("explore:",explore)
         action = random.choice([0,1,2])
         if action == 0:
             print("modify!")
@@ -331,10 +336,12 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
 
         if score < best_score:
             best_score = score
+            print("modify saved")
             
         else:
             temp_dict = origin_dict   
         confidence = compute_confidence(temp_dict, model, discriminator) 
+        print("after dict:",temp_dict)
         if confidence > 0.7:
             return temp_dict
     return temp_dict
@@ -650,7 +657,7 @@ if __name__ == '__main__':
         for node in class_node_list:
             if len(node.parent)==0:
                 root_node = node
-        gen_dict = mcts(root_node, class_node_list, 50, temp_dict, model, discriminator)
+        gen_dict = mcts(root_node, class_node_list, 100, temp_dict, model, discriminator)
         gen_target.data[d_ID] = gen_dict
 #         gen_target.data[d_ID]['text'] = [s.split(" ") for s in generate_sent]
 #         gen_target.data[d_ID]['topic_label'] = domain_ID

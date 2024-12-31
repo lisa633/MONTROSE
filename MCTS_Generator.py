@@ -51,6 +51,7 @@ def construct_graph(temp_dict):
 
     edges = [(src_idx, tIds_dic[dst_ID] if dst_ID in tIds_dic else 0)
                 for src_idx, dst_ID in enumerate(temp_dict["reply_to"][:data_len])]
+    print
     src = np.array([item[0] for item in edges])
     dst = np.array([item[1] for item in edges])
     g_TD = dgl.graph((dst, src), num_nodes=data_len)

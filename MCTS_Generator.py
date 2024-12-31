@@ -51,12 +51,68 @@ def construct_graph(temp_dict):
 
     edges = [(src_idx, tIds_dic[dst_ID] if dst_ID in tIds_dic else 0)
                 for src_idx, dst_ID in enumerate(temp_dict["reply_to"][:data_len])]
-    print
     src = np.array([item[0] for item in edges])
     dst = np.array([item[1] for item in edges])
     g_TD = dgl.graph((dst, src), num_nodes=data_len)
     g_BU = dgl.graph((src, dst), num_nodes=data_len)
     return g_TD, g_BU
+
+def compute_loss(temp_dict,model,discriminator):
+
+    gen_data = MetaMCMCDataset()
+    timestamp = int(time.time())
+    temp_id = str(timestamp)
+    gen_data.data[temp_id] = temp_dict
+    gen_data.dataclear()
+
+    batch = source_domain.collate_fn([gen_data])
+    with torch.no_grad():
+        vecs = model.Batch2Vecs(batch)
+    logits = discriminator(vecs)
+    print("logits:",logits)
+    topic_label = torch.tensor([domain_ID],device=torch.device('cuda'))
+    print("original topic label:",batch[-1])
+    print("topic_label:",topic_label)
+    domain_loss = F.cross_entropy(logits, topic_label) 
+#         print("domain_loss:",domain_loss)
+    return domain_loss
+
+def compute_score(temp_dict,model,discriminator):
+    gen_data = MetaMCMCDataset()
+    timestamp = int(time.time())
+    temp_id = str(timestamp)
+    gen_data.data[temp_id] = temp_dict
+    gen_data.dataclear()
+    batch = source_domain.collate_fn([gen_data])
+    with torch.no_grad():
+        vecs = model.Batch2Vecs(batch)
+    logits = discriminator(vecs)
+    value = logits[0, domain_ID].item()
+    return value
+
+def compute_confidence(temp_dict,model,discriminator):
+    gen_data = MetaMCMCDataset()
+    timestamp = int(time.time())
+    temp_id = str(timestamp)
+    gen_data.data[temp_id] = temp_dict
+    gen_data.dataclear()
+    batch = source_domain.collate_fn([gen_data])
+    with torch.no_grad():
+        vecs = model.Batch2Vecs(batch)
+    probs = discriminator(vecs).softmax(dim=1)
+    softmax_value = probs[:,domain_ID]
+    return softmax_value.item()
+
+
+def delete_node_and_descendants(node_id,all_node_list):
+    delete_list = []
+    delete_list.append(node_id)
+    node = all_node_list[node_id]
+    for child_id in node.children[:]:
+        delete_list.append(child_id)
+        # node.children.remove(child_id)
+        delete_node_and_descendants(child_id,all_node_list)
+    return delete_list
 
 
 class Node:
@@ -80,30 +136,9 @@ class Node:
             parent_node_list.append(all_node_list[node_id])
         return parent_node_list[0]
     
-    def compute_score(self,temp_data,model,discriminator):
-        batch = source_domain.collate_fn([temp_data])
-        with torch.no_grad():
-            vecs = model.Batch2Vecs(batch)
-        logits = discriminator(vecs)
-        value = logits[0, domain_ID].item()
-        return value
-    
-    def compute_loss(self,temp_data,model,discriminator):
-        batch = source_domain.collate_fn([temp_data])
-        with torch.no_grad():
-            vecs = model.Batch2Vecs(batch)
-        logits = discriminator(vecs)
-        print("logits:",logits)
-        topic_label = torch.tensor([domain_ID],device=torch.device('cuda'))
-        print("original topic label:",batch[-1])
-        print("topic_label:",topic_label)
-        domain_loss = F.cross_entropy(logits, topic_label) 
-#         print("domain_loss:",domain_loss)
-        return domain_loss
+    def expand_modify(self,temp_dict,model,discriminator):
 
-    def expand(self,temp_data,model,discriminator):
-
-        prompt_sent = temp_data.text[self.index]
+        prompt_sent = temp_dict["sentence"][self.index]
         target_sent = random.choice(unlabeled_target[random.randint(0,len(unlabeled_target.data_ID)-1)].text)
 #         target_sent = "Black teenage boys are not men. They are children. Stop referring to a 17 year old as a man. You are killing children. #ferguson"
         try:
@@ -116,8 +151,71 @@ class Node:
             generate_sents = completion.choices[0].message.content
         except:
             generate_sents = prompt_sent
-        temp_data.text[self.index] = generate_sents
-        self.score = self.compute_score(temp_data,model,discriminator)
+        temp_dict["sentence"][self.index] = generate_sents
+        temp_dict["text"][self.index] = [s.split(" ") for s in generate_sents]
+        self.score = compute_score(temp_dict,model,discriminator)
+
+    def expand_add(self,temp_dict,model,discriminator,all_node_list):
+
+        new_id = int(str(temp_dict["tweet_id"][self.index]) + str(random.randint(0, 9)))
+        prompt_sent = temp_dict["sentence"][self.index]
+        target_sent = random.choice(unlabeled_target[random.randint(0,len(unlabeled_target.data_ID)-1)].text)
+#         target_sent = "Black teenage boys are not men. They are children. Stop referring to a 17 year old as a man. You are killing children. #ferguson"
+        try:
+            completion = client.chat.completions.create(
+            model="qwen-plus", # 模型列表：https://help.aliyun.com/zh/model-studio/getting-started/models
+            messages=[
+                {'role': 'system', 'content': 'You are a twitter user. You can generate twitter-form reply to make it like replies in the target domain'},
+                {'role': 'user', 'content': 'here is an example in target domain: '+target_sent+' The given twitter is:'+prompt_sent+'Please generate a target-domain-form reply to the given twitter without \'Note\''}],
+            )
+            generate_sents = completion.choices[0].message.content
+        except:
+            generate_sents = ""
+        
+        
+        if len(generate_sents) > 0:
+            start_date = datetime.datetime(2022,1,1)
+            end_date = datetime.datetime(2022,12,31)
+            random_date = start_date+random.random()*(end_date-start_date)
+            time_str = random_date.strftime("%Y-%m-%d %H:%M:%S")
+            d = datetime.datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+            t = d.timetuple()  
+            create_time = int(time.mktime(t))
+            temp_dict["sentence"].append(generate_sents)
+            temp_dict["text"].append([s.split(" ") for s in generate_sents])
+            data_len = len(temp_dict["sentence"])
+            if len(temp_dict["tweet_id"]) > data_len:
+                temp_dict["tween_id"][data_len] = new_id
+                temp_dict["reply_to"][data_len] = temp_dict["tween_id"][self.index]
+                temp_dict["created_at"][data_len]= create_time
+            else:
+                temp_dict["tween_id"].append(new_id)
+                temp_dict["reply_to"].append(["tween_id"][self.index])
+                temp_dict["created_at"].append(create_time)
+
+            new_node = Node(data_len-1,[self.index],[])
+            all_node_list.append(new_node)
+
+        self.score = compute_score(temp_dict,model,discriminator)
+
+    def expand_delete(self,temp_dict,model,discriminator,all_node_list):
+        if len(self.parent) > 0:
+            delete_list = delete_node_and_descendants(self.index,all_node_list)
+            print("delete_list:", delete_list)
+            for delete_id in delete_list:
+                del temp_dict["sentence"][delete_id]
+                del temp_dict["text"][delete_id]
+                del temp_dict["tweet_id"][delete_id]
+                del temp_dict["reply_to"][delete_id]
+                del temp_dict["created_at"][delete_id]
+                del all_node_list[delete_id]
+            parent_node = self.get_parent_node(all_node_list)
+            if self.index in parent_node.children:
+                parent_node.children.remove(self.index)
+            self.score = compute_score(temp_dict,model,discriminator)
+        else:
+            print("cannot delete root node!")
+            self.score = compute_score(temp_dict,model,discriminator)
        
 
     def select(self,all_node_list):
@@ -199,16 +297,13 @@ def ComputeDomainConfidence(discriminator,model,dataset):
         
 
 
-def mcts(root_node, all_node_list, iterations, temp_data, model, discriminator):
-    best_score = root_node.compute_loss(temp_data, model, discriminator)
-    generate_text = temp_data["text"]
+def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
+    best_score = compute_loss(temp_dict, model, discriminator)
     print("init score:",best_score)
-    print("label:",temp_data.data_y)
-    print("original text:", generate_text)
     
     for i in range(iterations):
         print("step:",i)
-        origin_data = copy.deepcopy(temp_data)
+        origin_dict = copy.deepcopy(temp_dict)
         explore = []
         node = root_node
 
@@ -218,22 +313,31 @@ def mcts(root_node, all_node_list, iterations, temp_data, model, discriminator):
             node = node.select(all_node_list)
 #             print(node.index)
             explore.append(node.index)
-        node.expand(temp_data,model,discriminator)
+        action = random.choice([0,1,2])
+        if action == 0:
+            print("modify!")
+            node.expand_modify(temp_dict,model,discriminator)
+        elif action == 1:
+            print("add!")
+            node.expand_add(temp_dict,model,discriminator,all_node_list)
+        else:
+            print("delete!")
+            node.expand_delete(temp_dict,model,discriminator,all_node_list)
+
         node.state = True
         node.backpropagate(all_node_list)
-        score = node.compute_loss(temp_data, model, discriminator)
+        score = compute_loss(temp_dict, model, discriminator)
         print("score:",score)
 
         if score < best_score:
             best_score = score
-            generate_text = temp_data["text"]
-            print("modify save!")
             
         else:
-            temp_data = origin_data    
-    print("generate_text:",generate_text)  
-    print("after score:",root_node.compute_loss(temp_data, model, discriminator))
-    return generate_text
+            temp_dict = origin_dict   
+        confidence = compute_confidence(temp_dict, model, discriminator) 
+        if confidence > 0.7:
+            return temp_dict
+    return temp_dict
             
         
         
@@ -529,14 +633,12 @@ if __name__ == '__main__':
     for i,d_ID in enumerate(source_domain.data_ID[:10]):
         temp_dict = source_domain.data[d_ID]
         print("dict:",temp_dict)
-        print(source_domain[i])
         g_TD, g_BU = construct_graph(temp_dict)
 
         tree = g_TD
         nodes = tree.nodes()
         print("nodes:",nodes)
         s,d = tree.remove_self_loop().edges()
-        print("s,d:",s,d)
         nodes_list = nodes.cpu().tolist()
         source = s.cpu().tolist()
         des = d.cpu().tolist()
@@ -548,7 +650,8 @@ if __name__ == '__main__':
         for node in class_node_list:
             if len(node.parent)==0:
                 root_node = node
-#         generate_sent = mcts(root_node, class_node_list, 50, temp_data, model, discriminator)
+        gen_dict = mcts(root_node, class_node_list, 50, temp_dict, model, discriminator)
+        gen_target.data[d_ID] = gen_dict
 #         gen_target.data[d_ID]['text'] = [s.split(" ") for s in generate_sent]
 #         gen_target.data[d_ID]['topic_label'] = domain_ID
 # #         gen_target.data[d_ID]['label'] = source_domain.data[d_ID]['label']
@@ -558,16 +661,16 @@ if __name__ == '__main__':
 # #         gen_target.data[d_ID]['reply_to'] = source_domain.data[d_ID]['reply_to']
 # #         gen_target.data[d_ID]['tweet_id'] = source_domain.data[d_ID]['tweet_id']
 
-#     gen_target.dataclear()
+    gen_target.dataclear()
     
             
-#     event_dir = os.path.join(data_dir1,"qwen_gen_from_source",test_event_name)
-#     print(event_dir)
-#     gen_target.Caches_Data(event_dir)
+    event_dir = os.path.join(data_dir1,"qwen_gen_from_source",test_event_name)
+    print(event_dir)
+    gen_target.Caches_Data(event_dir)
     
-#     PseudoLabeling(model, gen_target)
+    PseudoLabeling(model, gen_target)
     
-#     ComputeDomainConfidence(discriminator,model,gen_target)
+    ComputeDomainConfidence(discriminator,model,gen_target)
         
 
     

@@ -183,16 +183,16 @@ class Node:
             create_time = int(time.mktime(t))
             temp_dict["sentence"].append(generate_sents)
             temp_dict["text"].append([s.split(" ") for s in generate_sents])
-            data_len = len(temp_dict["sentence"])
-            print("data_len:",data_len)
-            print("tweet_id_len:",len(temp_dict["tweet_id"]))
+            data_len = len(temp_dict["text"])
             if len(temp_dict["tweet_id"]) > data_len:
-                temp_dict["tweet_id"][data_len] = new_id
-                temp_dict["reply_to"][data_len] = temp_dict["tweet_id"][self.index]
+                temp_dict["sentence"][data_len] = generate_sents
+                temp_dict["tween_id"][data_len] = new_id
+                temp_dict["reply_to"][data_len] = temp_dict["tween_id"][self.index]
                 temp_dict["created_at"][data_len]= create_time
             else:
-                temp_dict["tweet_id"].append(new_id)
-                temp_dict["reply_to"].append(temp_dict["tweet_id"][self.index])
+                temp_dict["sentence"].append(generate_sents)
+                temp_dict["tween_id"].append(new_id)
+                temp_dict["reply_to"].append(["tween_id"][self.index])
                 temp_dict["created_at"].append(create_time)
 
             new_node = Node(data_len-1,[self.index],[])

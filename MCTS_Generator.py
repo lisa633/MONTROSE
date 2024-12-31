@@ -28,6 +28,35 @@ event_dics = {
 
 domain_ID = 0
 
+def construct_graph(temp_dict):
+    tIds_dic = {}
+    dup_cnt = 0
+    dup_idxs = []
+    data_len = len(temp_dict["text"])
+
+    for idx, ID in enumerate(temp_dict["tweet_id"]):
+        if ID in tIds_dic:
+            data_len -= 1
+            dup_cnt += 1
+            dup_idxs.append(idx)
+        else:
+            tIds_dic[ID] = idx - dup_cnt
+
+    for i, idx in enumerate(dup_idxs):
+        temp_dict["tweet_id"].pop(idx-i)
+        temp_dict["reply_to"].pop(idx-i)
+        temp_dict[d_ID]["text"].pop(idx-i)
+        temp_dict[d_ID]["sentence"].pop(idx-i)
+        temp_dict[d_ID]["created_at"].pop(idx-i)
+
+    edges = [(src_idx, tIds_dic[dst_ID] if dst_ID in tIds_dic else 0)
+                for src_idx, dst_ID in enumerate(temp_dict["reply_to"][:data_len])]
+    src = np.array([item[0] for item in edges])
+    dst = np.array([item[1] for item in edges])
+    g_TD = dgl.graph((dst, src), num_nodes=data_len)
+    g_BU = dgl.graph((src, dst), num_nodes=data_len)
+    return g_TD, g_BU
+
 
 class Node:
     def __init__(self,index,parent,children):
@@ -497,42 +526,46 @@ if __name__ == '__main__':
 #     gen_target = copy.deepcopy(source_domain)
 
     for i,d_ID in enumerate(source_domain.data_ID[:10]):
-        gen_target.data[d_ID] = source_domain.data[d_ID]
-        temp_data = source_domain[i]
-        tree = temp_data.g_TD
+        temp_dict = source_domain.data[d_ID]
+        print("dict:",temp_dict)
+        g_TD, g_BU = construct_graph(temp_dict)
+
+        tree = g_TD
         nodes = tree.nodes()
-#         print("nodes:",nodes)
+        print("nodes:",nodes)
         s,d = tree.remove_self_loop().edges()
-#         print("s,d:",s,d)
+        print("s,d:",s,d)
         nodes_list = nodes.cpu().tolist()
         source = s.cpu().tolist()
         des = d.cpu().tolist()
         child_lists = [[des[k] for k, nodes_id in enumerate(source) if nodes_id == n] for n in nodes_list]
+        print("child_lists:",child_lists)
         parent_lists = [[source[j] for j, nodes_id in enumerate(des) if nodes_id == n] for n in nodes_list]
+        print("parent_lists:",parent_lists)
         class_node_list = [Node(s,parent_lists[s],child_lists[s]) for s,n in enumerate(nodes_list)]
         for node in class_node_list:
             if len(node.parent)==0:
                 root_node = node
-        generate_sent = mcts(root_node, class_node_list, 50, temp_data, model, discriminator)
-        gen_target.data[d_ID]['text'] = [s.split(" ") for s in generate_sent]
-        gen_target.data[d_ID]['topic_label'] = domain_ID
-#         gen_target.data[d_ID]['label'] = source_domain.data[d_ID]['label']
-#         gen_target.data[d_ID]['event'] = source_domain.data[d_ID]['event']
-#         gen_target.data[d_ID]['sentnece'] = generate_sent
-#         gen_target.data[d_ID]['created_at'] = source_domain.data[d_ID]['created_at']
-#         gen_target.data[d_ID]['reply_to'] = source_domain.data[d_ID]['reply_to']
-#         gen_target.data[d_ID]['tweet_id'] = source_domain.data[d_ID]['tweet_id']
+#         generate_sent = mcts(root_node, class_node_list, 50, temp_data, model, discriminator)
+#         gen_target.data[d_ID]['text'] = [s.split(" ") for s in generate_sent]
+#         gen_target.data[d_ID]['topic_label'] = domain_ID
+# #         gen_target.data[d_ID]['label'] = source_domain.data[d_ID]['label']
+# #         gen_target.data[d_ID]['event'] = source_domain.data[d_ID]['event']
+# #         gen_target.data[d_ID]['sentnece'] = generate_sent
+# #         gen_target.data[d_ID]['created_at'] = source_domain.data[d_ID]['created_at']
+# #         gen_target.data[d_ID]['reply_to'] = source_domain.data[d_ID]['reply_to']
+# #         gen_target.data[d_ID]['tweet_id'] = source_domain.data[d_ID]['tweet_id']
 
-    gen_target.dataclear()
+#     gen_target.dataclear()
     
             
-    event_dir = os.path.join(data_dir1,"qwen_gen_from_source",test_event_name)
-    print(event_dir)
-    gen_target.Caches_Data(event_dir)
+#     event_dir = os.path.join(data_dir1,"qwen_gen_from_source",test_event_name)
+#     print(event_dir)
+#     gen_target.Caches_Data(event_dir)
     
-    PseudoLabeling(model, gen_target)
+#     PseudoLabeling(model, gen_target)
     
-    ComputeDomainConfidence(discriminator,model,gen_target)
+#     ComputeDomainConfidence(discriminator,model,gen_target)
         
 
     

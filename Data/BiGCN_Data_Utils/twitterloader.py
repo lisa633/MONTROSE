@@ -273,37 +273,40 @@ class TwitterLoader(RumorLoader):
         self.data[key]['tweet_id'] = [self.data[key]['tweet_id'][idx] for idx in temp_idxs]
         self.data[key]['reply_to'] = [self.data[key]['reply_to'][idx] for idx in temp_idxs]
 
-    def gather_posts(self, key, temp_idxs, post_fn):
-        id2idx = {t_id: idx for idx, t_id in enumerate(self.data[key]['tweet_id'])}
-        id2idx[None] = -1
-        self.data[key]['text'] = []
-        ttext = ""
-        for i in range(len(temp_idxs)):
-            if i % post_fn == 0:  # merge the fixed number of texts in a time interval
-                if len(ttext) > 0:  # if there are data already in ttext, output it as a new instance
-                    words = self.transIrregularWord(ttext, self.seg)
-                    self.data[key]['text'].append(words)
-                    ttext = ''
+    def gather_posts(self, key, temp_idxs, post_fn, merge = True):
+        if merge:
+            id2idx = {t_id: idx for idx, t_id in enumerate(self.data[key]['tweet_id'])}
+            id2idx[None] = -1
+            self.data[key]['text'] = []
+            ttext = ""
+            for i in range(len(temp_idxs)):
+                if i % post_fn == 0:  # merge the fixed number of texts in a time interval
+                    if len(ttext) > 0:  # if there are data already in ttext, output it as a new instance
+                        words = self.transIrregularWord(ttext, self.seg)
+                        self.data[key]['text'].append(words)
+                        ttext = ''
+                    else:
+                        ttext = self.data[key]['sentence'][i]
                 else:
-                    ttext = self.data[key]['sentence'][i]
-            else:
-                ttext += " " + self.data[key]['sentence'][i]
-        # keep the last one
-        if len(ttext) > 0:
-            words = self.transIrregularWord(ttext)
-            self.data[key]['text'].append(words)
+                    ttext += " " + self.data[key]['sentence'][i]
+            # keep the last one
+            if len(ttext) > 0:
+                words = self.transIrregularWord(ttext)
+                self.data[key]['text'].append(words)
+        else:
+            self.data[key]['text'] = [self.transIrregularWord(self.data[key]['sentence'][i]) for i in temp_idxs]
 #         print(self.data[key]['tweet_id'])
 #         print(self.data[key]['topic_label'])
 #         print("text:",self.data[key]['text'])
 #         print("sentence:",self.data[key]['sentence'])
 #         assert len(self.data[key]['text']) == len(self.data[key]['sentence'])
 
-    def dataclear(self, post_fn=1):
+    def dataclear(self, post_fn=1, merge = True):
         print("data clear here:")
         for key, value in tqdm(self.data.items()):
             temp_idxs = np.array(self.data[key]['created_at']).argsort().tolist()
             self.sort_by_timeline(key, temp_idxs)
-            self.gather_posts(key, temp_idxs, post_fn)
+            self.gather_posts(key, temp_idxs, post_fn, merge)
 
         for key in self.data.keys():
             self.data_ID.append(key)

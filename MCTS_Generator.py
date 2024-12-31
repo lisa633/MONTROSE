@@ -528,6 +528,7 @@ if __name__ == '__main__':
     for i,d_ID in enumerate(source_domain.data_ID[:10]):
         temp_dict = source_domain.data[d_ID]
         print("dict:",temp_dict)
+        print(source_domain[i])
         g_TD, g_BU = construct_graph(temp_dict)
 
         tree = g_TD

@@ -26,7 +26,7 @@ event_dics = {
     'sydneysiege': 4
 }
 
-domain_ID = 1
+domain_ID = 0
 
 
 class Node:
@@ -56,8 +56,6 @@ class Node:
             vecs = model.Batch2Vecs(batch)
         logits = discriminator(vecs)
         value = logits[0, domain_ID].item()
-        print("logits:",logits)
-        print("value:",value)
         return value
     
     def compute_loss(self,temp_data,model,discriminator):
@@ -65,9 +63,10 @@ class Node:
         with torch.no_grad():
             vecs = model.Batch2Vecs(batch)
         logits = discriminator(vecs)
-#         print("logits:",logits)
+        print("logits:",logits)
         topic_label = torch.tensor([domain_ID],device=torch.device('cuda'))
-#         print("topic_label:",topic_label)
+        print("original topic label:",batch[-1])
+        print("topic_label:",topic_label)
         domain_loss = F.cross_entropy(logits, topic_label) 
 #         print("domain_loss:",domain_loss)
         return domain_loss
@@ -75,8 +74,8 @@ class Node:
     def expand(self,temp_data,model,discriminator):
 
         prompt_sent = temp_data.text[self.index]
-#         target_sent = random.choice(unlabeled_target[random.randint(0,len(unlabeled_target.data_ID)-1)].text)
-        target_sent = "Black teenage boys are not men. They are children. Stop referring to a 17 year old as a man. You are killing children. #ferguson"
+        target_sent = random.choice(unlabeled_target[random.randint(0,len(unlabeled_target.data_ID)-1)].text)
+#         target_sent = "Black teenage boys are not men. They are children. Stop referring to a 17 year old as a man. You are killing children. #ferguson"
         try:
             completion = client.chat.completions.create(
             model="qwen-plus", # 模型列表：https://help.aliyun.com/zh/model-studio/getting-started/models
@@ -103,7 +102,6 @@ class Node:
             if value > best_value:
                 best_value = value
                 best_child = child
-        best_child.state = True
         return best_child
 
     def backpropagate(self,all_node_list):
@@ -151,7 +149,6 @@ def PseudoLabeling(model, dataset:PseudoDataset, temperature = 1.0):
             (texts, num_nodes, A_TD, A_BU),
             temperature=temperature
         )
-        print("logits:",logits)
         confidence, label_idx = torch.max(logits, dim=1) #confidence保存最大概率，label_idx为该概率对应的类别
         print("confidence:",confidence)
         print("label_idx:",label_idx)
@@ -160,43 +157,52 @@ def PseudoLabeling(model, dataset:PseudoDataset, temperature = 1.0):
         weak_label =eye[label_idx].cpu().tolist() #将最高置信度的类别转化为one-hot形式作为伪标签
         dataset.initLabel(weak_label)
         dataset.initConfidence(confidence.cpu().tolist())
+        
+def ComputeDomainConfidence(discriminator,model,dataset):
+    batch = source_domain.collate_fn(dataset)
+    with torch.no_grad():
+        vecs = model.Batch2Vecs(batch)
+    probs = discriminator(vecs).softmax(dim=1)
+    softmax_value = probs[:,domain_ID]
+    print(probs)
+    print(softmax_value)
+        
 
 
 def mcts(root_node, all_node_list, iterations, temp_data, model, discriminator):
-    best_score = root_node.compute_loss(temp_data)
+    best_score = root_node.compute_loss(temp_data, model, discriminator)
     generate_text = temp_data["text"]
-    print("original_text:",generate_text)
     print("init score:",best_score)
+    print("label:",temp_data.data_y)
+    print("original text:", generate_text)
     
     for i in range(iterations):
         print("step:",i)
         origin_data = copy.deepcopy(temp_data)
         explore = []
-        explore.append(root_node.index)
-        root_node.state = True
         node = root_node
-        node.copy_data = copy.deepcopy(root_node.copy_data)
-#         print("process:",node.copy_data["text"])
+
         while len(node.children) > 0 and node.state == True:
 #             print(len(node.children))
 #             print(node.state)
             node = node.select(all_node_list)
 #             print(node.index)
             explore.append(node.index)
-        print("explore:",explore)
         node.expand(temp_data,model,discriminator)
+        node.state = True
         node.backpropagate(all_node_list)
-        score = node.compute_loss(temp_data)
-        print("after score:",score)
+        score = node.compute_loss(temp_data, model, discriminator)
+        print("score:",score)
 
         if score < best_score:
-            print("modify save!")
             best_score = score
             generate_text = temp_data["text"]
+            print("modify save!")
+            
         else:
-            temp_data = origin_data
-            
-            
+            temp_data = origin_data    
+    print("generate_text:",generate_text)  
+    print("after score:",root_node.compute_loss(temp_data, model, discriminator))
     return generate_text
             
         
@@ -451,8 +457,8 @@ def obtain_Transformer(bertPath, device=None):
 
 
 if __name__ == '__main__':
-#     data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
-    data_dir1 = r"../../autodl-tmp/data/test/"
+    data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
+#     data_dir1 = r"../../autodl-tmp/data/test/"
     
     os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
 
@@ -490,7 +496,7 @@ if __name__ == '__main__':
     gen_target.data = {}
 #     gen_target = copy.deepcopy(source_domain)
 
-    for i,d_ID in enumerate(source_domain.data_ID):
+    for i,d_ID in enumerate(source_domain.data_ID[:10]):
         gen_target.data[d_ID] = source_domain.data[d_ID]
         temp_data = source_domain[i]
         tree = temp_data.g_TD
@@ -507,8 +513,7 @@ if __name__ == '__main__':
         for node in class_node_list:
             if len(node.parent)==0:
                 root_node = node
-        generate_sent = mcts(root_node, class_node_list, 30, temp_data, model, discriminator)
-        print("generate_sent:",generate_sent)
+        generate_sent = mcts(root_node, class_node_list, 50, temp_data, model, discriminator)
         gen_target.data[d_ID]['text'] = [s.split(" ") for s in generate_sent]
         gen_target.data[d_ID]['topic_label'] = domain_ID
 #         gen_target.data[d_ID]['label'] = source_domain.data[d_ID]['label']
@@ -520,12 +525,16 @@ if __name__ == '__main__':
 
     gen_target.dataclear()
     
+            
+    event_dir = os.path.join(data_dir1,"qwen_gen_from_source",test_event_name)
+    print(event_dir)
+    gen_target.Caches_Data(event_dir)
+    
     PseudoLabeling(model, gen_target)
+    
+    ComputeDomainConfidence(discriminator,model,gen_target)
         
-        
-#     event_dir = os.path.join(data_dir1,"qwen_gen_from_source",test_event_name)
-#     print(event_dir)
-#     gen_target.Caches_Data(event_dir)
+
     
     
 

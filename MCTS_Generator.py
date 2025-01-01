@@ -63,18 +63,14 @@ def compute_loss(temp_dict,model,discriminator):
     timestamp = int(time.time())
     temp_id = str(timestamp)
     gen_data.data[temp_id] = temp_dict
-    gen_data.dataclear()
+    gen_data.dataclear(merge = False)
 
     batch = source_domain.collate_fn([gen_data[0]])
     with torch.no_grad():
         vecs = model.Batch2Vecs(batch)
     logits = discriminator(vecs)
-    print("logits:",logits)
     topic_label = torch.tensor([domain_ID],device=torch.device('cuda'))
-    print("original topic label:",batch[-1])
-    print("topic_label:",topic_label)
     domain_loss = F.cross_entropy(logits, topic_label) 
-#         print("domain_loss:",domain_loss)
     return domain_loss
 
 def compute_score(temp_dict,model,discriminator):
@@ -82,7 +78,7 @@ def compute_score(temp_dict,model,discriminator):
     timestamp = int(time.time())
     temp_id = str(timestamp)
     gen_data.data[temp_id] = temp_dict
-    gen_data.dataclear()
+    gen_data.dataclear(merge = False)
     batch = source_domain.collate_fn([gen_data[0]])
     with torch.no_grad():
         vecs = model.Batch2Vecs(batch)
@@ -95,7 +91,7 @@ def compute_confidence(temp_dict,model,discriminator):
     timestamp = int(time.time())
     temp_id = str(timestamp)
     gen_data.data[temp_id] = temp_dict
-    gen_data.dataclear()
+    gen_data.dataclear(merge = False)
     batch = source_domain.collate_fn([gen_data[0]])
     with torch.no_grad():
         vecs = model.Batch2Vecs(batch)
@@ -126,14 +122,20 @@ class Node:
         
     def get_child_node(self,all_node_list):
         child_node_list = []
+#         print("children:",self.children)
+#         print("len:",len(all_node_list))
         for node_id in self.children:
-            child_node_list.append(all_node_list[node_id])
+            if node_id<len(all_node_list):
+                child_node_list.append(all_node_list[node_id])
         return child_node_list
     
     def get_parent_node(self,all_node_list):
         parent_node_list = []
+#         print("parent:",self.parent)
+#         print("len:",len(all_node_list))
         for node_id in self.parent:
-            parent_node_list.append(all_node_list[node_id])
+            if node_id<len(all_node_list):
+                parent_node_list.append(all_node_list[node_id])
         return parent_node_list[0]
     
     def expand_modify(self,temp_dict,model,discriminator):
@@ -151,6 +153,7 @@ class Node:
             generate_sents = completion.choices[0].message.content
         except:
             generate_sents = prompt_sent
+        print("generate sents:",generate_sents)
         temp_dict["sentence"][self.index] = generate_sents
         temp_dict["text"][self.index] = [s.split(" ") for s in generate_sents]
         self.score = compute_score(temp_dict,model,discriminator)
@@ -181,48 +184,49 @@ class Node:
             d = datetime.datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
             t = d.timetuple()  
             create_time = int(time.mktime(t))
-            temp_dict["sentence"].append(generate_sents)
-            temp_dict["text"].append([s.split(" ") for s in generate_sents])
             data_len = len(temp_dict["text"])
+            temp_dict["text"].append([s.split(" ") for s in generate_sents])
             if len(temp_dict["tweet_id"]) > data_len:
                 temp_dict["sentence"][data_len] = generate_sents
-                temp_dict["tween_id"][data_len] = new_id
-                temp_dict["reply_to"][data_len] = temp_dict["tween_id"][self.index]
+                temp_dict["tweet_id"][data_len] = new_id
+                temp_dict["reply_to"][data_len] = temp_dict["tweet_id"][self.index]
                 temp_dict["created_at"][data_len]= create_time
             else:
                 temp_dict["sentence"].append(generate_sents)
-                temp_dict["tween_id"].append(new_id)
-                temp_dict["reply_to"].append(["tween_id"][self.index])
+                temp_dict["tweet_id"].append(new_id)
+                temp_dict["reply_to"].append(temp_dict["tweet_id"][self.index])
                 temp_dict["created_at"].append(create_time)
-
-            new_node = Node(data_len-1,[self.index],[])
-            self.children.append(data_len-1)
-            all_node_list.append(new_node)
+            
 
         self.score = compute_score(temp_dict,model,discriminator)
 
     def expand_delete(self,temp_dict,model,discriminator,all_node_list):
+        delete_list = []
         if len(self.parent) > 0:
             delete_list = delete_node_and_descendants(self.index,all_node_list)
-            print("delete_list:", delete_list)
-            for delete_id in delete_list:
-                del temp_dict["sentence"][delete_id]
-                del temp_dict["text"][delete_id]
-                del temp_dict["tweet_id"][delete_id]
-                del temp_dict["reply_to"][delete_id]
-                del temp_dict["created_at"][delete_id]
-                del all_node_list[delete_id]
-            parent_node = self.get_parent_node(all_node_list)
-            if self.index in parent_node.children:
-                parent_node.children.remove(self.index)
+#             print("delete_list:", delete_list)
+            temp_sentence = [sentence for i,sentence in enumerate(temp_dict["sentence"]) if i not in delete_list]
+            temp_text = [text for i,text in enumerate(temp_dict["text"]) if i not in delete_list]
+            temp_id = [t_id for i,t_id in enumerate(temp_dict["tweet_id"]) if i not in delete_list]
+            temp_reply = [reply for i,reply in enumerate(temp_dict["reply_to"]) if i not in delete_list]
+            temp_creat = [creat for i,creat in enumerate(temp_dict["created_at"]) if i not in delete_list]
+            temp_dict["sentence"] = temp_sentence
+            temp_dict["text"] = temp_text
+            temp_dict["tweet_id"] = temp_id
+            temp_dict["reply_to"] = temp_reply
+            temp_dict["created_at"] = temp_creat
             self.score = compute_score(temp_dict,model,discriminator)
+    
         else:
             print("cannot delete root node!")
-            self.score = compute_score(temp_dict,model,discriminator)
+        
+        return delete_list
+            
        
 
     def select(self,all_node_list):
         best_value = float('-inf')
+#         print("child:",self.children)
         child_node_list = self.get_child_node(all_node_list)
         best_child = child_node_list[0]
         for child in child_node_list:
@@ -241,7 +245,7 @@ class Node:
             parent = self.get_parent_node(all_node_list)
             parent.visits += 1
             parent.score += self.score
-    #         print(len(parent.parent))
+
             while len(parent.parent) != 0:
                 parent = parent.get_parent_node(all_node_list)
                 parent.visits += 1
@@ -301,48 +305,129 @@ def ComputeDomainConfidence(discriminator,model,dataset):
 
 
 def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
-    best_score = compute_loss(temp_dict, model, discriminator)
-    print("init score:",best_score)
+#     best_score = compute_loss(temp_dict, model, discriminator)
+#     print("init score:",best_score)
     
     for i in range(iterations):
         print("step:",i)
         origin_dict = copy.deepcopy(temp_dict)
-        print("origin_dict:",origin_dict)
+        origin_all_node_list = copy.deepcopy(all_node_list)
         explore = []
         node = root_node
 
         while len(node.children) > 0 and node.state == True:
-#             print(len(node.children))
-#             print(node.state)
+            print("select!")
             node = node.select(all_node_list)
-#             print(node.index)
             explore.append(node.index)
         print("explore:",explore)
         action = random.choice([0,1,2])
         if action == 0:
             print("modify!")
             node.expand_modify(temp_dict,model,discriminator)
+            
+            node.state = True
+            node.backpropagate(all_node_list)
+#             score = compute_loss(temp_dict, model, discriminator)
+#             print("score:",score)
+
+#             if score < best_score:
+#                 best_score = score
+#                 print("modify saved")
+#             else:
+#                 temp_dict = origin_dict
         elif action == 1:
             print("add!")
             node.expand_add(temp_dict,model,discriminator,all_node_list)
-        else:
-            print("delete!")
-            node.expand_delete(temp_dict,model,discriminator,all_node_list)
+            node.state = True
+            node.backpropagate(all_node_list)
+#             score = compute_loss(temp_dict, model, discriminator)
+#             print("score:",score)
+            
+            new_node = Node(len(temp_dict["text"])-1,[node.index],[])
+            print("add node index:",new_node.index)
+            all_node_list.append(new_node)
+            all_node_list[node.index].children.append(new_node.index)
 
-        node.state = True
-        node.backpropagate(all_node_list)
-        score = compute_loss(temp_dict, model, discriminator)
-        print("score:",score)
+#             if score < best_score:
+#                 best_score = score
+#                 print("modify saved")
+#                 new_node = Node(len(temp_dict["text"])-1,[node.index],[])
+#                 all_node_list.append(new_node)
+#                 all_node_list[node.index].children.append(len(temp_dict["text"])-1)
+                
 
-        if score < best_score:
-            best_score = score
-            print("modify saved")
+#             else:
+#                 temp_dict = origin_dict   
+
+            
             
         else:
-            temp_dict = origin_dict   
+            print("delete!")
+            delete_list = node.expand_delete(temp_dict,model,discriminator,all_node_list)
+            if len(delete_list)>0:
+                node.state = True
+                node.backpropagate(all_node_list)
+#             score = compute_loss(temp_dict, model, discriminator)
+#             print("score:",score)
+#                 print("delete index:",node.index)
+#                 print("parent:",node.parent)
+
+                parent_node = node.get_parent_node(all_node_list)
+                print("parent:",parent_node.index)
+                print("before parent children:",all_node_list[parent_node.index].children)
+                if node.index in parent_node.children:
+                    all_node_list[parent_node.index].children.remove(node.index)
+                print("after parent children:",all_node_list[parent_node.index].children)
+                    
+                new_node_list = [node for node in all_node_list if node.index not in delete_list]
+                all_node_list = new_node_list
+                change_dict = {}
+                for i,node in enumerate(all_node_list):
+                    node_index = node.index
+                    if node_index != i:
+                        change_dict[node.index] = i
+                        node.index = i
+#                 print("change_dict:",change_dict)
+                for node in all_node_list:
+                    new_children = []
+                    for child_id in node.children:
+                        if child_id in change_dict.keys():
+                            new_children.append(change_dict[child_id])
+                        else:
+                            new_children.append(child_id)
+                    new_parent = []
+                    for parent_id in node.parent:
+                        if parent_id in change_dict.keys():
+                            new_parent.append(change_dict[parent_id])
+                        else:
+                            new_parent.append(parent_id)
+      
+                    node.children = new_children
+                    node.parent = new_parent
+                    
+
+#             if score < best_score:
+#                 best_score = score
+#                 print("modify saved")
+#                 g_TD, g_BU = construct_graph(temp_dict)
+
+#                 tree = g_TD
+#                 nodes = tree.nodes()
+#                 s,d = tree.remove_self_loop().edges()
+#                 nodes_list = nodes.cpu().tolist()
+#                 source = s.cpu().tolist()
+#                 des = d.cpu().tolist()
+#                 child_lists = [[des[k] for k, nodes_id in enumerate(source) if nodes_id == n] for n in nodes_list]
+#                 parent_lists = [[source[j] for j, nodes_id in enumerate(des) if nodes_id == n] for n in nodes_list]
+#                 all_node_list = [Node(s,parent_lists[s],child_lists[s]) for s,n in enumerate(nodes_list)]
+                       
+#             else:
+#                 temp_dict = origin_dict
+
+        
         confidence = compute_confidence(temp_dict, model, discriminator) 
-        print("after dict:",temp_dict)
-        if confidence > 0.7:
+        print("confidence:",confidence)
+        if confidence > 0.6:
             return temp_dict
     return temp_dict
             
@@ -548,7 +633,6 @@ class TwitterTransformer(BiGCNRumorDetecV2):
         # 检查是否有可用的GPU
         epsilon = torch.ones_like(preds) * 1e-8
         preds = (preds - epsilon).abs()  # to avoid the prediction [1.0, 0.0], which leads to the 'nan' value in log operation
-        print("preds device:",preds.device)
         labels = batch[-2].to(preds.device)
         loss, acc = self.loss_func(preds, labels, label_weight=label_weight, reduction=reduction)
         return loss, acc
@@ -637,27 +721,26 @@ if __name__ == '__main__':
     gen_target.data = {}
 #     gen_target = copy.deepcopy(source_domain)
 
-    for i,d_ID in enumerate(source_domain.data_ID[:10]):
+    for i,d_ID in enumerate(source_domain.data_ID[:500]):
         temp_dict = source_domain.data[d_ID]
-        print("dict:",temp_dict)
+        temp_dict["text"] = [s.split(" ") for s in temp_dict["sentence"]]
         g_TD, g_BU = construct_graph(temp_dict)
 
         tree = g_TD
         nodes = tree.nodes()
-        print("nodes:",nodes)
         s,d = tree.remove_self_loop().edges()
         nodes_list = nodes.cpu().tolist()
         source = s.cpu().tolist()
         des = d.cpu().tolist()
         child_lists = [[des[k] for k, nodes_id in enumerate(source) if nodes_id == n] for n in nodes_list]
-        print("child_lists:",child_lists)
+        print("child:",child_lists)
         parent_lists = [[source[j] for j, nodes_id in enumerate(des) if nodes_id == n] for n in nodes_list]
-        print("parent_lists:",parent_lists)
+        print("parent:",parent_lists)
         class_node_list = [Node(s,parent_lists[s],child_lists[s]) for s,n in enumerate(nodes_list)]
         for node in class_node_list:
             if len(node.parent)==0:
                 root_node = node
-        gen_dict = mcts(root_node, class_node_list, 100, temp_dict, model, discriminator)
+        gen_dict = mcts(root_node, class_node_list, 50, temp_dict, model, discriminator)
         gen_target.data[d_ID] = gen_dict
 #         gen_target.data[d_ID]['text'] = [s.split(" ") for s in generate_sent]
 #         gen_target.data[d_ID]['topic_label'] = domain_ID

@@ -400,8 +400,8 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
                         else:
                             new_parent.append(parent_id)
       
-                    node.children = new_children
-                    node.parent = new_parent
+                    all_node_list[node.index].children = new_children
+                    all_node_list[node.index].parent = new_parent
                     
 
 #             if score < best_score:

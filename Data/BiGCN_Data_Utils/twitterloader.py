@@ -302,8 +302,7 @@ class TwitterLoader(RumorLoader):
 #         assert len(self.data[key]['text']) == len(self.data[key]['sentence'])
 
     def dataclear(self, post_fn=1, merge = True):
-        print("data clear here:")
-        for key, value in tqdm(self.data.items()):
+        for key, value in self.data.items():
             temp_idxs = np.array(self.data[key]['created_at']).argsort().tolist()
             self.sort_by_timeline(key, temp_idxs)
             self.gather_posts(key, temp_idxs, post_fn, merge)

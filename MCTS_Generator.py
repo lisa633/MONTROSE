@@ -316,7 +316,6 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
         node = root_node
 
         while len(node.children) > 0 and node.state == True:
-            print("select!")
             node = node.select(all_node_list)
             explore.append(node.index)
         print("explore:",explore)
@@ -344,7 +343,6 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
 #             print("score:",score)
             
             new_node = Node(len(temp_dict["text"])-1,[node.index],[])
-            print("add node index:",new_node.index)
             all_node_list.append(new_node)
             all_node_list[node.index].children.append(new_node.index)
 
@@ -373,11 +371,11 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
 #                 print("parent:",node.parent)
 
                 parent_node = node.get_parent_node(all_node_list)
-                print("parent:",parent_node.index)
-                print("before parent children:",all_node_list[parent_node.index].children)
+#                 print("parent:",parent_node.index)
+#                 print("before parent children:",all_node_list[parent_node.index].children)
                 if node.index in parent_node.children:
                     all_node_list[parent_node.index].children.remove(node.index)
-                print("after parent children:",all_node_list[parent_node.index].children)
+#                 print("after parent children:",all_node_list[parent_node.index].children)
                     
                 new_node_list = [node for node in all_node_list if node.index not in delete_list]
                 all_node_list = new_node_list
@@ -733,9 +731,9 @@ if __name__ == '__main__':
         source = s.cpu().tolist()
         des = d.cpu().tolist()
         child_lists = [[des[k] for k, nodes_id in enumerate(source) if nodes_id == n] for n in nodes_list]
-        print("child:",child_lists)
+#         print("child:",child_lists)
         parent_lists = [[source[j] for j, nodes_id in enumerate(des) if nodes_id == n] for n in nodes_list]
-        print("parent:",parent_lists)
+#         print("parent:",parent_lists)
         class_node_list = [Node(s,parent_lists[s],child_lists[s]) for s,n in enumerate(nodes_list)]
         for node in class_node_list:
             if len(node.parent)==0:

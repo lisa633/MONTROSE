@@ -1497,11 +1497,14 @@ if __name__ == '__main__':
 #     print(labeled_target_li)
 #     unlabeled_target_li = [unlabeled_target.data_ID[i] for i in range(len(unlabeled_target.data_ID))]
 #     print(unlabeled_target_li)
+###########################################################
     print(data_dir2)
     gen_dataset = MetaMCMCDataset()
     gen_dataset.load_data_fast(data_dir2)
     data_list = [unlabeled_target,gen_dataset]
     new_unlabeled_target = reduce(Merge_data,data_list)
+
+###############################################################
     
 #     gen_labeled = MetaMCMCDataset()
 #     for li in labeled_target_li:
@@ -1554,7 +1557,7 @@ if __name__ == '__main__':
             torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
         )
     else:
-        for epoch in range(4):
+        for epoch in range(3):
             trainer.optimizeDiscriminator(model, source_domain, new_unlabeled_target, max_step=500)
         torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
     trainer.Training(model, source_domain, new_unlabeled_target, dev_eval, te_eval, max_iterate=100)     

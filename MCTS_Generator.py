@@ -307,6 +307,11 @@ def ComputeDomainConfidence(discriminator,model,dataset):
 def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
 #     best_score = compute_loss(temp_dict, model, discriminator)
 #     print("init score:",best_score)
+    print("before:")
+    for node in all_node_list:
+        print("index:",node.index)
+        print("children:",node.children)
+        print("parent:",node.parent)
     
     for i in range(iterations):
         print("step:",i)
@@ -377,31 +382,31 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
                     all_node_list[parent_node.index].children.remove(node.index)
 #                 print("after parent children:",all_node_list[parent_node.index].children)
                     
-                new_node_list = [node for node in all_node_list if node.index not in delete_list]
+                new_node_list = [n for n in all_node_list if n.index not in delete_list]
                 all_node_list = new_node_list
                 change_dict = {}
-                for i,node in enumerate(all_node_list):
-                    node_index = node.index
-                    if node_index != i:
-                        change_dict[node.index] = i
-                        node.index = i
+                for i,no in enumerate(all_node_list):
+                    no_index = no.index
+                    if no_index != i:
+                        change_dict[no.index] = i
+                        no.index = i
 #                 print("change_dict:",change_dict)
-                for node in all_node_list:
+                for nod in all_node_list:
                     new_children = []
-                    for child_id in node.children:
+                    for child_id in nod.children:
                         if child_id in change_dict.keys():
                             new_children.append(change_dict[child_id])
                         else:
                             new_children.append(child_id)
                     new_parent = []
-                    for parent_id in node.parent:
+                    for parent_id in nod.parent:
                         if parent_id in change_dict.keys():
                             new_parent.append(change_dict[parent_id])
                         else:
                             new_parent.append(parent_id)
       
-                    all_node_list[node.index].children = new_children
-                    all_node_list[node.index].parent = new_parent
+                    all_node_list[nod.index].children = new_children
+                    all_node_list[nod.index].parent = new_parent
                     
 
 #             if score < best_score:
@@ -421,6 +426,12 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
                        
 #             else:
 #                 temp_dict = origin_dict
+
+        print("after:")
+        for nodes in all_node_list:
+            print("index:",nodes.index)
+            print("children:",nodes.children)
+            print("parent:",nodes.parent)
 
         
         confidence = compute_confidence(temp_dict, model, discriminator) 

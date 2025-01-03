@@ -381,7 +381,9 @@ class Covid19Loader(RumorLoader):
     def construct_graph(self, index, d_ID):
         edges = self.data[d_ID]['edges']
         src = np.array([item[0] for item in edges])
+        print("src:",src)
         dst = np.array([item[1] for item in edges])
+        print("dst:",dst)
         g_TD = dgl.graph((dst, src), num_nodes=self.data_len[index])
         g_BU = dgl.graph((src, dst), num_nodes=self.data_len[index])
         return g_TD, g_BU
@@ -488,7 +490,7 @@ class BiGCNTwitterSet(TwitterSet):
         tIds_dic = {}
         dup_cnt = 0
         dup_idxs = []
-        for idx, ID in enumerate(self.data[d_ID]["tweet_id"]):
+        for idx, ID in enumerate(self.data[d_ID]["tweet_id"][:self.data_len[index]]):
             if ID in tIds_dic:
                 self.data_len[index] -= 1
                 dup_cnt += 1

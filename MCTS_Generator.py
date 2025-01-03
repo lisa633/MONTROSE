@@ -100,15 +100,12 @@ def compute_confidence(temp_dict,model,discriminator):
     return softmax_value.item()
 
 
-def delete_node_and_descendants(node_id,all_node_list):
-    delete_list = []
-    delete_list.append(node_id)
-    node = all_node_list[node_id]
-    for child_id in node.children[:]:
-        delete_list.append(child_id)
-        # node.children.remove(child_id)
-        delete_node_and_descendants(child_id,all_node_list)
-    return delete_list
+def find_all_descendants(node_id,all_node_list):
+    descendants = []
+    for child_id in all_node_list[node_id].children:
+        descendants.append(child_id)
+        descendants.extend(find_all_descendants(child_id,all_node_list))
+    return descendants
 
 
 class Node:
@@ -133,10 +130,14 @@ class Node:
         parent_node_list = []
 #         print("parent:",self.parent)
 #         print("len:",len(all_node_list))
-        for node_id in self.parent:
-            if node_id<len(all_node_list):
-                parent_node_list.append(all_node_list[node_id])
-        return parent_node_list[0]
+        if len(self.parent) > 0:
+            for node_id in self.parent:
+                if node_id<len(all_node_list):
+                    parent_node_list.append(all_node_list[node_id])
+            return parent_node_list[0]
+        else:
+            return None
+
     
     def expand_modify(self,temp_dict,model,discriminator):
 
@@ -197,13 +198,15 @@ class Node:
                 temp_dict["reply_to"].append(temp_dict["tweet_id"][self.index])
                 temp_dict["created_at"].append(create_time)
             
-
-        self.score = compute_score(temp_dict,model,discriminator)
+            self.score = compute_score(temp_dict,model,discriminator)
+        else:
+            print("generate sentence is null!")
 
     def expand_delete(self,temp_dict,model,discriminator,all_node_list):
         delete_list = []
         if len(self.parent) > 0:
-            delete_list = delete_node_and_descendants(self.index,all_node_list)
+            delete_list = find_all_descendants(self.index,all_node_list)
+            delete_list.append(self.index)
 #             print("delete_list:", delete_list)
             temp_sentence = [sentence for i,sentence in enumerate(temp_dict["sentence"]) if i not in delete_list]
             temp_text = [text for i,text in enumerate(temp_dict["text"]) if i not in delete_list]
@@ -307,11 +310,7 @@ def ComputeDomainConfidence(discriminator,model,dataset):
 def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
 #     best_score = compute_loss(temp_dict, model, discriminator)
 #     print("init score:",best_score)
-    print("before:")
-    for node in all_node_list:
-        print("index:",node.index)
-        print("children:",node.children)
-        print("parent:",node.parent)
+
     
     for i in range(iterations):
         print("step:",i)
@@ -342,14 +341,21 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
         elif action == 1:
             print("add!")
             node.expand_add(temp_dict,model,discriminator,all_node_list)
-            node.state = True
-            node.backpropagate(all_node_list)
-#             score = compute_loss(temp_dict, model, discriminator)
-#             print("score:",score)
-            
-            new_node = Node(len(temp_dict["text"])-1,[node.index],[])
-            all_node_list.append(new_node)
-            all_node_list[node.index].children.append(new_node.index)
+            parent = node.get_parent_node(all_node_list)
+            if len(temp_dict["text"]) > len(all_node_list):
+                if parent != None:
+                    if len(parent.children)>1:
+                        node.state = True
+                else:
+                    if len(node.children) > 0:
+                        node.state = True
+                node.backpropagate(all_node_list)
+    #             score = compute_loss(temp_dict, model, discriminator)
+    #             print("score:",score)
+
+                new_node = Node(len(temp_dict["text"])-1,[node.index],[])
+                all_node_list.append(new_node)
+                all_node_list[node.index].children.append(new_node.index)
 
 #             if score < best_score:
 #                 best_score = score
@@ -427,18 +433,12 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator):
 #             else:
 #                 temp_dict = origin_dict
 
-        print("after:")
-        for nodes in all_node_list:
-            print("index:",nodes.index)
-            print("children:",nodes.children)
-            print("parent:",nodes.parent)
-
         
         confidence = compute_confidence(temp_dict, model, discriminator) 
         print("confidence:",confidence)
-        if confidence > 0.6:
+        if confidence > 0.5:
             return temp_dict
-    return temp_dict
+    return None
             
         
         
@@ -730,7 +730,7 @@ if __name__ == '__main__':
     gen_target.data = {}
 #     gen_target = copy.deepcopy(source_domain)
 
-    for i,d_ID in enumerate(source_domain.data_ID[:500]):
+    for i,d_ID in enumerate(source_domain.data_ID[:3000]):
         temp_dict = source_domain.data[d_ID]
         temp_dict["text"] = [s.split(" ") for s in temp_dict["sentence"]]
         g_TD, g_BU = construct_graph(temp_dict)
@@ -749,8 +749,9 @@ if __name__ == '__main__':
         for node in class_node_list:
             if len(node.parent)==0:
                 root_node = node
-        gen_dict = mcts(root_node, class_node_list, 50, temp_dict, model, discriminator)
-        gen_target.data[d_ID] = gen_dict
+        gen_dict = mcts(root_node, class_node_list, 10, temp_dict, model, discriminator)
+        if gen_dict != None:
+            gen_target.data[d_ID] = gen_dict
 #         gen_target.data[d_ID]['text'] = [s.split(" ") for s in generate_sent]
 #         gen_target.data[d_ID]['topic_label'] = domain_ID
 # #         gen_target.data[d_ID]['label'] = source_domain.data[d_ID]['label']

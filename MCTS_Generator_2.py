@@ -732,7 +732,7 @@ if __name__ == '__main__':
     all_gen_target.data = {}
 #     gen_target = copy.deepcopy(source_domain)
 
-    for i,d_ID in enumerate(source_domain.data_ID[:600]):
+    for i,d_ID in enumerate(source_domain.data_ID[1200:1800]):
         temp_dict = source_domain.data[d_ID]
         temp_dict["text"] = [s.split(" ") for s in temp_dict["sentence"]]
         g_TD, g_BU = construct_graph(temp_dict)
@@ -764,11 +764,11 @@ if __name__ == '__main__':
     all_gen_target.dataclear()
     
             
-    event_dir = os.path.join(data_dir1,"qwen_gen_from_source","1",test_event_name)
+    event_dir = os.path.join(data_dir1,"qwen_gen_from_source","3",test_event_name)
     print(event_dir)
     gen_target.Caches_Data(event_dir)
     
-    event_dir1 = os.path.join(data_dir1,"qwen_gen_from_source_all","1",test_event_name)
+    event_dir1 = os.path.join(data_dir1,"qwen_gen_from_source_all","3",test_event_name)
     print(event_dir1)
     all_gen_target.Caches_Data(event_dir1)
     

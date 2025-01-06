@@ -371,7 +371,7 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator,t
                     print("score:",score)
                     node.state = True
                     node.backpropagate(all_node_list)
-                    score = best_score
+                    best_score = score
 
                     parent_node = node.get_parent_node(all_node_list)
     #                 print("parent:",parent_node.index)

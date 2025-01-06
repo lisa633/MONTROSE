@@ -690,7 +690,7 @@ def load_events(events_list: List):
         data_list.append(dataset)
 
     if len(data_list) > 1:
-        final_set = reduce(Merge_data, data_list)
+        final_set = reduce(Merge_data, data_list,shuffle=False)
         del dataset, data_list
     elif len(data_list) == 1:
         final_set = data_list[0]
@@ -807,7 +807,7 @@ def load_events(events_list: List):
         data_list.append(dataset)
 
     if len(data_list) > 1:
-        final_set = reduce(Merge_data, data_list)
+        final_set = reduce(Merge_data, data_list,shuffle=False)
         del dataset, data_list
     elif len(data_list) == 1:
         final_set = data_list[0]

@@ -730,7 +730,7 @@ if __name__ == '__main__':
     gen_target.data = {}
 #     gen_target = copy.deepcopy(source_domain)
 
-    for i,d_ID in enumerate(source_domain.data_ID[:600]):
+    for i,d_ID in enumerate(source_domain.data_ID[600:1200]):
         temp_dict = source_domain.data[d_ID]
         temp_dict["text"] = [s.split(" ") for s in temp_dict["sentence"]]
         g_TD, g_BU = construct_graph(temp_dict)

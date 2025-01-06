@@ -308,7 +308,7 @@ def ComputeDomainConfidence(discriminator,model,dataset):
 
 
 def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator,threshold=0.8):
-#     best_score = compute_loss(temp_dict, model, discriminator)
+    best_score = compute_confidence(temp_dict, model, discriminator)
 #     print("init score:",best_score)
     all_dict = []    
     for i in range(iterations):
@@ -326,117 +326,88 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator,t
         if action == 0:
             print("modify!")
             node.expand_modify(temp_dict,model,discriminator)
-            
-            node.state = True
-            node.backpropagate(all_node_list)
-#             score = compute_loss(temp_dict, model, discriminator)
-#             print("score:",score)
-
-#             if score < best_score:
-#                 best_score = score
-#                 print("modify saved")
-#             else:
-#                 temp_dict = origin_dict
+            score = compute_confidence(temp_dict, model, discriminator)
+            print("score:",score)
+            if score > best_score:
+                node.state = True
+                node.backpropagate(all_node_list)
+                best_score = score
+            else:
+                temp_dict = origin_dict
         elif action == 1:
             print("add!")
             node.expand_add(temp_dict,model,discriminator,all_node_list)
-            parent = node.get_parent_node(all_node_list)
-            if len(temp_dict["text"]) > len(all_node_list):
-                if parent != None:
-                    if len(parent.children)>1:
-                        node.state = True
-                else:
-                    if len(node.children) > 0:
-                        node.state = True
-                node.backpropagate(all_node_list)
-    #             score = compute_loss(temp_dict, model, discriminator)
-    #             print("score:",score)
+            score = compute_confidence(temp_dict, model, discriminator)
+            print("score:",score)
+            if score > best_score:
+                parent = node.get_parent_node(all_node_list)
+                if len(temp_dict["text"]) > len(all_node_list):
+                    if parent != None:
+                        if len(parent.children)>1:
+                            node.state = True
+                    else:
+                        if len(node.children) > 0:
+                            node.state = True
+                    node.backpropagate(all_node_list)
+        #             score = compute_loss(temp_dict, model, discriminator)
+        #             print("score:",score)
+                    best_score = score
 
-                new_node = Node(len(temp_dict["text"])-1,[node.index],[])
-                all_node_list.append(new_node)
-                all_node_list[node.index].children.append(new_node.index)
-
-#             if score < best_score:
-#                 best_score = score
-#                 print("modify saved")
-#                 new_node = Node(len(temp_dict["text"])-1,[node.index],[])
-#                 all_node_list.append(new_node)
-#                 all_node_list[node.index].children.append(len(temp_dict["text"])-1)
-                
-
-#             else:
-#                 temp_dict = origin_dict   
-
-            
-            
+                    new_node = Node(len(temp_dict["text"])-1,[node.index],[])
+                    all_node_list.append(new_node)
+                    all_node_list[node.index].children.append(new_node.index)
+            else:
+                temp_dict = origin_dict
+       
         else:
             print("delete!")
             delete_list = node.expand_delete(temp_dict,model,discriminator,all_node_list)
+            score = compute_confidence(temp_dict, model, discriminator)
+            print("score:",score)
             if len(delete_list)>0:
-                node.state = True
-                node.backpropagate(all_node_list)
-#             score = compute_loss(temp_dict, model, discriminator)
-#             print("score:",score)
-#                 print("delete index:",node.index)
-#                 print("parent:",node.parent)
+                if score > best_score:
+                    node.state = True
+                    node.backpropagate(all_node_list)
+                    score = best_score
 
-                parent_node = node.get_parent_node(all_node_list)
-#                 print("parent:",parent_node.index)
-#                 print("before parent children:",all_node_list[parent_node.index].children)
-                if node.index in parent_node.children:
-                    all_node_list[parent_node.index].children.remove(node.index)
-#                 print("after parent children:",all_node_list[parent_node.index].children)
-                    
-                new_node_list = [n for n in all_node_list if n.index not in delete_list]
-                all_node_list = new_node_list
-                change_dict = {}
-                for i,no in enumerate(all_node_list):
-                    no_index = no.index
-                    if no_index != i:
-                        change_dict[no.index] = i
-                        no.index = i
-#                 print("change_dict:",change_dict)
-                for nod in all_node_list:
-                    new_children = []
-                    for child_id in nod.children:
-                        if child_id in change_dict.keys():
-                            new_children.append(change_dict[child_id])
-                        else:
-                            new_children.append(child_id)
-                    new_parent = []
-                    for parent_id in nod.parent:
-                        if parent_id in change_dict.keys():
-                            new_parent.append(change_dict[parent_id])
-                        else:
-                            new_parent.append(parent_id)
-      
-                    all_node_list[nod.index].children = new_children
-                    all_node_list[nod.index].parent = new_parent
-                    
+                    parent_node = node.get_parent_node(all_node_list)
+    #                 print("parent:",parent_node.index)
+    #                 print("before parent children:",all_node_list[parent_node.index].children)
+                    if node.index in parent_node.children:
+                        all_node_list[parent_node.index].children.remove(node.index)
+    #                 print("after parent children:",all_node_list[parent_node.index].children)
 
-#             if score < best_score:
-#                 best_score = score
-#                 print("modify saved")
-#                 g_TD, g_BU = construct_graph(temp_dict)
+                    new_node_list = [n for n in all_node_list if n.index not in delete_list]
+                    all_node_list = new_node_list
+                    change_dict = {}
+                    for i,no in enumerate(all_node_list):
+                        no_index = no.index
+                        if no_index != i:
+                            change_dict[no.index] = i
+                            no.index = i
+    #                 print("change_dict:",change_dict)
+                    for nod in all_node_list:
+                        new_children = []
+                        for child_id in nod.children:
+                            if child_id in change_dict.keys():
+                                new_children.append(change_dict[child_id])
+                            else:
+                                new_children.append(child_id)
+                        new_parent = []
+                        for parent_id in nod.parent:
+                            if parent_id in change_dict.keys():
+                                new_parent.append(change_dict[parent_id])
+                            else:
+                                new_parent.append(parent_id)
 
-#                 tree = g_TD
-#                 nodes = tree.nodes()
-#                 s,d = tree.remove_self_loop().edges()
-#                 nodes_list = nodes.cpu().tolist()
-#                 source = s.cpu().tolist()
-#                 des = d.cpu().tolist()
-#                 child_lists = [[des[k] for k, nodes_id in enumerate(source) if nodes_id == n] for n in nodes_list]
-#                 parent_lists = [[source[j] for j, nodes_id in enumerate(des) if nodes_id == n] for n in nodes_list]
-#                 all_node_list = [Node(s,parent_lists[s],child_lists[s]) for s,n in enumerate(nodes_list)]
-                       
-#             else:
-#                 temp_dict = origin_dict
+                        all_node_list[nod.index].children = new_children
+                        all_node_list[nod.index].parent = new_parent
+                else:
+                    temp_dict = origin_dict
+
         all_dict.append(temp_dict)
 
-        
-        confidence = compute_confidence(temp_dict, model, discriminator) 
-        print("confidence:",confidence)
-        if confidence > threshold:
+        if score > threshold:
             return temp_dict,all_dict
     return None,all_dict
             
@@ -732,7 +703,7 @@ if __name__ == '__main__':
     all_gen_target.data = {}
 #     gen_target = copy.deepcopy(source_domain)
 
-    for i,d_ID in enumerate(source_domain.data_ID[2400:3000]):
+    for i,d_ID in enumerate(source_domain.data_ID[1200:1500]):
         temp_dict = source_domain.data[d_ID]
         temp_dict["text"] = [s.split(" ") for s in temp_dict["sentence"]]
         g_TD, g_BU = construct_graph(temp_dict)
@@ -751,7 +722,7 @@ if __name__ == '__main__':
         for node in class_node_list:
             if len(node.parent)==0:
                 root_node = node
-        gen_dict,all_dict = mcts(root_node, class_node_list, 100, temp_dict, model, discriminator, threshold = 0.8)
+        gen_dict,all_dict = mcts(root_node, class_node_list, 50, temp_dict, model, discriminator, threshold = 0.75)
         if gen_dict != None:
             gen_target.data[d_ID] = gen_dict
         for all_d in all_dict:
@@ -764,11 +735,11 @@ if __name__ == '__main__':
     all_gen_target.dataclear()
     
             
-    event_dir = os.path.join(data_dir1,"qwen_gen_from_source","5",test_event_name)
+    event_dir = os.path.join(data_dir1,"qwen_gen_from_source","4",test_event_name)
     print(event_dir)
     gen_target.Caches_Data(event_dir)
     
-    event_dir1 = os.path.join(data_dir1,"qwen_gen_from_source_all","5",test_event_name)
+    event_dir1 = os.path.join(data_dir1,"qwen_gen_from_source_all","4",test_event_name)
     print(event_dir1)
     all_gen_target.Caches_Data(event_dir1)
     

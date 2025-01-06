@@ -629,7 +629,7 @@ class FastTwitterDataset(BiGCNTwitterSet, CustomDataset):
                     data_len=self.data_len[index])
 
 
-def Merge_data(data_set1, data_set2, shuffle=True):
+def Merge_data(data_set1, data_set2, shuffle=False):
     new_data = data_set1.__class__()
     new_data.data = dict(data_set1.data, **data_set2.data)
     if shuffle:
@@ -690,7 +690,7 @@ def load_events(events_list: List):
         data_list.append(dataset)
 
     if len(data_list) > 1:
-        final_set = reduce(Merge_data, data_list,shuffle=False)
+        final_set = reduce(Merge_data, data_list)
         del dataset, data_list
     elif len(data_list) == 1:
         final_set = data_list[0]
@@ -807,7 +807,7 @@ def load_events(events_list: List):
         data_list.append(dataset)
 
     if len(data_list) > 1:
-        final_set = reduce(Merge_data, data_list,shuffle=False)
+        final_set = reduce(Merge_data, data_list)
         del dataset, data_list
     elif len(data_list) == 1:
         final_set = data_list[0]

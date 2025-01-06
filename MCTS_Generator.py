@@ -149,7 +149,7 @@ class Node:
             model="qwen-plus", # 模型列表：https://help.aliyun.com/zh/model-studio/getting-started/models
             messages=[
                 {'role': 'system', 'content': 'You are a twitter user. You can rephrase twitter-form reply to make it like replies in the target domain'},
-                {'role': 'user', 'content': 'here is an example in target domain: '+target_sent+' The given twitter is:'+prompt_sent+'Please rephrase the given twitter to make it a reply in the target domain without \'Note\''}],
+                {'role': 'user', 'content': 'here is an example in target domain: '+target_sent+' The given twitter is:'+prompt_sent+'Please rephrase the given twitter to make it a reply in the target domain in English no more than 64 words without \'Note\''}],
             )
             generate_sents = completion.choices[0].message.content
         except:
@@ -170,7 +170,7 @@ class Node:
             model="qwen-plus", # 模型列表：https://help.aliyun.com/zh/model-studio/getting-started/models
             messages=[
                 {'role': 'system', 'content': 'You are a twitter user. You can generate twitter-form reply to make it like replies in the target domain'},
-                {'role': 'user', 'content': 'here is an example in target domain: '+target_sent+' The given twitter is:'+prompt_sent+'Please generate a target-domain-form reply to the given twitter without \'Note\''}],
+                {'role': 'user', 'content': 'here is an example in target domain: '+target_sent+' The given twitter is:'+prompt_sent+'Please generate a target-domain-form reply to the given twitter in English no more than 64 words without \'Note\''}],
             )
             generate_sents = completion.choices[0].message.content
         except:
@@ -309,7 +309,7 @@ def ComputeDomainConfidence(discriminator,model,dataset):
 
 def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator,threshold=0.8):
     best_score = compute_confidence(temp_dict, model, discriminator)
-#     print("init score:",best_score)
+    print("init score:",best_score)
     all_dict = []    
     for i in range(iterations):
         print("step:",i)
@@ -327,8 +327,9 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator,t
             print("modify!")
             node.expand_modify(temp_dict,model,discriminator)
             score = compute_confidence(temp_dict, model, discriminator)
-            print("score:",score)
+            
             if score > best_score:
+                print("score:",score)
                 node.state = True
                 node.backpropagate(all_node_list)
                 best_score = score
@@ -338,8 +339,9 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator,t
             print("add!")
             node.expand_add(temp_dict,model,discriminator,all_node_list)
             score = compute_confidence(temp_dict, model, discriminator)
-            print("score:",score)
+            
             if score > best_score:
+                print("score:",score)
                 parent = node.get_parent_node(all_node_list)
                 if len(temp_dict["text"]) > len(all_node_list):
                     if parent != None:
@@ -363,9 +365,10 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator,t
             print("delete!")
             delete_list = node.expand_delete(temp_dict,model,discriminator,all_node_list)
             score = compute_confidence(temp_dict, model, discriminator)
-            print("score:",score)
+            
             if len(delete_list)>0:
                 if score > best_score:
+                    print("score:",score)
                     node.state = True
                     node.backpropagate(all_node_list)
                     score = best_score
@@ -722,7 +725,7 @@ if __name__ == '__main__':
         for node in class_node_list:
             if len(node.parent)==0:
                 root_node = node
-        gen_dict,all_dict = mcts(root_node, class_node_list, 50, temp_dict, model, discriminator, threshold = 0.75)
+        gen_dict,all_dict = mcts(root_node, class_node_list, 100, temp_dict, model, discriminator, threshold = 0.75)
         if gen_dict != None:
             gen_target.data[d_ID] = gen_dict
         for all_d in all_dict:

@@ -40,6 +40,8 @@ from BaseModel.BiGCN_Utils.GraphRumorDect import BiGCNRumorDetecV2
 from Data.BiGCN_Dataloader import BiGCNTwitterSet, FastBiGCNDataset, MetaMCMCDataset, load_data_all, load_data_twitter15, Merge_data
 from BaseModel.modeling_bert import *
 from transformers.models.bert import BertConfig, BertTokenizer
+os.environ['CUDA_VISIBLE_DEVICES'] = "0,1" 
+device_id = [0,1]
 import torch, torch.nn as nn
 from typing import List, AnyStr
 from torch.utils.data import Dataset
@@ -61,8 +63,8 @@ class SentBert(nn.Module):
         # self.model = BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda'))
         self.model = nn.DataParallel(
             BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda')),
-            # device_ids=[0, 1, 2, 3],
-            device_ids = [0]
+            device_ids=[0, 1],
+#             device_ids = [0]
         )
 
     def text_to_batch_transformer(self, text: List):
@@ -1246,7 +1248,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
     ### sharpness-aware parameters
     epsilon_ball = 5e-5
     alternate_gap = 1
-    train_mix_ratio = 0.8
+    train_mix_ratio = 0.7
     train_mix_annealing = False
     valid_mix_ratio = 0.5
     valid_mix_annealing = False
@@ -1475,11 +1477,11 @@ class DgMSTF_Trainer(MetaLearningFramework):
 if __name__ == '__main__':
     data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
     
-    os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
+#     os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
     # for domain_ID in range(5):
-    domain_ID = 0
+    domain_ID = 1
     fewShotCnt = 100
     source_events = [os.path.join(data_dir1, dname)
                      for idx, dname in enumerate(events_list) if idx != domain_ID]
@@ -1501,7 +1503,14 @@ if __name__ == '__main__':
     print(data_dir2)
     gen_dataset = MetaMCMCDataset()
     gen_dataset.load_data_fast(data_dir2)
-    data_list = [unlabeled_target,gen_dataset]
+    
+    gen_target = MetaMCMCDataset()
+    gen_target.data = {}
+    for i,d_ID in enumerate(gen_dataset.data_ID[:1000]):
+        gen_target.data[d_ID] = gen_dataset.data[d_ID]
+        
+    gen_target.dataclear()
+    data_list = [unlabeled_target,gen_target]
     new_unlabeled_target = reduce(Merge_data,data_list)
 
 ###############################################################
@@ -1543,7 +1552,7 @@ if __name__ == '__main__':
         else:
             model.save_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")    
 
-    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=5,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=32, epsilon_ball=5e-2, Lambda=0.1, G_lr = 5e-3, D_lr=2e-4, valid_every=10, dStep=20) 
+    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=5,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=20, epsilon_ball=5e-5, Lambda=0.1, G_lr = 5e-5, D_lr=2e-4, valid_every=10, dStep=20) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
@@ -1557,7 +1566,7 @@ if __name__ == '__main__':
             torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
         )
     else:
-        for epoch in range(3):
+        for epoch in range(2):
             trainer.optimizeDiscriminator(model, source_domain, new_unlabeled_target, max_step=500)
         torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
     trainer.Training(model, source_domain, new_unlabeled_target, dev_eval, te_eval, max_iterate=100)     

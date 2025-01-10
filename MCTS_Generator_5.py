@@ -26,7 +26,7 @@ event_dics = {
     'sydneysiege': 4
 }
 
-domain_ID = 0
+domain_ID = 1
 
 def construct_graph(temp_dict):
     tIds_dic = {}
@@ -309,8 +309,7 @@ def ComputeDomainConfidence(discriminator,model,dataset):
 
 def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator,threshold=0.8):
     best_score = compute_confidence(temp_dict, model, discriminator)
-    print("init score:",best_score)
-    all_dict = []    
+    print("init score:",best_score)   
     for i in range(iterations):
         print("step:",i)
         origin_dict = copy.deepcopy(temp_dict)
@@ -408,11 +407,10 @@ def mcts(root_node, all_node_list, iterations, temp_dict, model, discriminator,t
                 else:
                     temp_dict = origin_dict
 
-        all_dict.append(temp_dict)
 
         if score > threshold:
-            return temp_dict,all_dict
-    return None,all_dict
+            return temp_dict
+    return None
             
         
         
@@ -701,12 +699,10 @@ if __name__ == '__main__':
             torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
         )
     gen_target = MetaMCMCDataset()
-    all_gen_target = MetaMCMCDataset()
     gen_target.data = {}
-    all_gen_target.data = {}
 #     gen_target = copy.deepcopy(source_domain)
 
-    for i,d_ID in enumerate(source_domain.data_ID[1500:1800]):
+    for i,d_ID in enumerate(source_domain.data_ID[2250:2700]):
         temp_dict = source_domain.data[d_ID]
         temp_dict["text"] = [s.split(" ") for s in temp_dict["sentence"]]
         g_TD, g_BU = construct_graph(temp_dict)
@@ -725,26 +721,18 @@ if __name__ == '__main__':
         for node in class_node_list:
             if len(node.parent)==0:
                 root_node = node
-        gen_dict,all_dict = mcts(root_node, class_node_list, 100, temp_dict, model, discriminator, threshold = 0.75)
+        gen_dict = mcts(root_node, class_node_list, 100, temp_dict, model, discriminator, threshold = 0.75)
         if gen_dict != None:
             gen_target.data[d_ID] = gen_dict
-        for all_d in all_dict:
-            timestamp = int(time.time())
-            new_d_ID = int(str(d_ID) + str(timestamp))
-            all_gen_target.data[new_d_ID] = all_d
             
 
     gen_target.dataclear()
-    all_gen_target.dataclear()
     
             
     event_dir = os.path.join(data_dir1,"qwen_gen_from_source","5",test_event_name)
     print(event_dir)
     gen_target.Caches_Data(event_dir)
     
-    event_dir1 = os.path.join(data_dir1,"qwen_gen_from_source_all","5",test_event_name)
-    print(event_dir1)
-    all_gen_target.Caches_Data(event_dir1)
     
     PseudoLabeling(model, gen_target)
     

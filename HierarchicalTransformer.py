@@ -40,8 +40,8 @@ from BaseModel.BiGCN_Utils.GraphRumorDect import BiGCNRumorDetecV2
 from Data.BiGCN_Dataloader import BiGCNTwitterSet, FastBiGCNDataset, MetaMCMCDataset, load_data_all, load_data_twitter15, Merge_data
 from BaseModel.modeling_bert import *
 from transformers.models.bert import BertConfig, BertTokenizer
-os.environ['CUDA_VISIBLE_DEVICES'] = "0,1" 
-device_id = [0,1]
+os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
+device_id = [0]
 import torch, torch.nn as nn
 from typing import List, AnyStr
 from torch.utils.data import Dataset
@@ -63,7 +63,7 @@ class SentBert(nn.Module):
         # self.model = BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda'))
         self.model = nn.DataParallel(
             BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda')),
-            device_ids=[0, 1],
+            device_ids=[0],
 #             device_ids = [0]
         )
 
@@ -404,7 +404,7 @@ class BiGCNTrainer(RumorBaseTrainer):
 
         cockpit = Cockpit(model.rdm_cls.parameters(), quantities=quantities)
         plotter = CockpitPlotter()
-        max_steps, global_step = 750, 0
+        max_steps, global_step = 400, 0
 
         for epoch in range(max_epochs):
             train_loader = self.trainset2trainloader(model, train_set, shuffle=True, batch_size=batch_size)
@@ -1481,7 +1481,7 @@ if __name__ == '__main__':
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
     # for domain_ID in range(5):
-    domain_ID = 1
+    domain_ID = 3
     fewShotCnt = 100
     source_events = [os.path.join(data_dir1, dname)
                      for idx, dname in enumerate(events_list) if idx != domain_ID]
@@ -1506,9 +1506,27 @@ if __name__ == '__main__':
     
     gen_target = MetaMCMCDataset()
     gen_target.data = {}
-    for i,d_ID in enumerate(gen_dataset.data_ID[:1000]):
-        gen_target.data[d_ID] = gen_dataset.data[d_ID]
+    rumor_count = 0
+    non_rumor_count = 0
+    actual_non = 0
+    actual_rumor = 0
+    gen_dataset.data_ID = random.sample(gen_dataset.data_ID, len(gen_dataset.data_ID))
+    for i,d_ID in enumerate(gen_dataset.data_ID):
+        if gen_dataset.data[d_ID]['label'] == "rumours":
+            
+            rumor_count += 1
+            if rumor_count % 2 == 0:
+                gen_target.data[d_ID] = gen_dataset.data[d_ID]
+                actual_rumor += 1
+        else:
+            non_rumor_count += 1
+            if non_rumor_count % 3 == 0:
+                gen_target.data[d_ID] = gen_dataset.data[d_ID]
+                actual_non += 1
         
+    print("rumor:", actual_rumor)
+    print("non rumor:", actual_non)
+#     random.sample(gen_dataset.data_ID,1500)
     gen_target.dataclear()
     data_list = [unlabeled_target,gen_target]
     new_unlabeled_target = reduce(Merge_data,data_list)
@@ -1552,7 +1570,7 @@ if __name__ == '__main__':
         else:
             model.save_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")    
 
-    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=5,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=20, epsilon_ball=5e-5, Lambda=0.1, G_lr = 5e-5, D_lr=2e-4, valid_every=10, dStep=20) 
+    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=5,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=24, epsilon_ball=5e-4, Lambda=0.1, G_lr = 5e-4, D_lr=2e-4, valid_every=10, dStep=20) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,

@@ -1568,11 +1568,11 @@ class DgMSTF_Trainer(MetaLearningFramework):
 if __name__ == '__main__':
     data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
     data_dir2 = r"../../autodl-tmp/data/t1516/"
-    os.environ['CUDA_VISIBLE_DEVICES'] = "0,1" 
+    os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege','twitter15','twitter16']
     # for domain_ID in range(5):
-    domain_ID = 6
+    domain_ID = 5
     fewShotCnt = 100
     source_events = []
     target_events = []
@@ -1644,7 +1644,7 @@ if __name__ == '__main__':
             torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
         )
     else:
-        for epoch in range(3):
+        for epoch in range(2):
             trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
         torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
     trainer.Training(model, source_domain, unlabeled_target, dev_eval, te_eval, max_iterate=100) 

@@ -1,6 +1,7 @@
 import os,random,dgl,json
 from BaseModel.BiGCN import DomainDiscriminator
-from Data.BiGCN_Dataloader import MetaMCMCDataset,load_data
+from Data.BiGCN_Dataloader import MetaMCMCDataset
+from Data.BiGCN_Dataloader_out import load_data
 from transformers.models.bert import BertConfig, BertTokenizer
 from openai import OpenAI
 import torch, torch.nn as nn
@@ -18,15 +19,7 @@ client = OpenAI(
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         )
 
-event_dics = {
-    'charliehebdo': 0,
-    'ferguson': 1,
-    'germanwings-crash': 2,
-    'ottawashooting': 3,
-    'sydneysiege': 4
-}
-
-domain_ID = 4
+domain_ID = 5
 
 def construct_graph(temp_dict):
     tIds_dic = {}
@@ -290,7 +283,7 @@ def PseudoLabeling(model, dataset:PseudoDataset, temperature = 1.0):
         confidence, label_idx = torch.max(logits, dim=1) #confidence保存最大概率，label_idx为该概率对应的类别
         print("confidence:",confidence)
         print("label_idx:",label_idx)
-        class_num = 5
+        class_num = 7
         eye = torch.eye(class_num, device=torch.device('cuda')) #创建一个形状为 (self.class_num, self.class_num) 的单位矩阵
         weak_label =eye[label_idx].cpu().tolist() #将最高置信度的类别转化为one-hot形式作为伪标签
         dataset.initLabel(weak_label)
@@ -664,19 +657,29 @@ def obtain_Transformer(bertPath, device=None):
 
 if __name__ == '__main__':
     data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
-#     data_dir1 = r"../../autodl-tmp/data/test/"
-    
+    data_dir2 = r"../../autodl-tmp/data/t1516/"
     os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
 
-    events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
+    events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege','twitter15','twitter16']
     # for domain_ID in range(5):
-
-    fewShotCnt = 0
-    source_events = [os.path.join(data_dir1, dname)
-                     for idx, dname in enumerate(events_list) if idx != domain_ID]
-    # source_events = [os.path.join(data_dir1, dname)
-    #                  for idx, dname in enumerate(events_list)]
-    target_events = [os.path.join(data_dir1, events_list[domain_ID])]
+    domain_ID = 5
+    fewShotCnt = 100
+    source_events = []
+    target_events = []
+    for idx,dname in enumerate(events_list):
+        if idx != domain_ID:
+            if dname == "twitter15" or dname == "twitter16":
+                source_events.append(os.path.join(data_dir2, dname))
+            else:
+                source_events.append(os.path.join(data_dir1, dname))
+#                 source_events= [os.path.join(data_dir1, dname)]
+    for idx, dname in enumerate(events_list):
+        if idx == domain_ID:
+            if dname=="twitter15" or dname=="twitter16":
+                target_events.append(os.path.join(data_dir2, dname))
+            else:
+                target_events.append(os.path.join(data_dir1, dname))
+    
     test_event_name = events_list[domain_ID]
     #train_set, labeled_target, val_set, test_set, unlabeled_target
     source_domain, labeled_target, val_set, test_set, unlabeled_target = load_data(
@@ -695,7 +698,7 @@ if __name__ == '__main__':
     discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
                                     model_device = model_device,
                                     learningRate=2e-5,
-                                    domain_num=5)
+                                    domain_num=7)
     
     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl"):
         discriminator.load_state_dict(
@@ -709,7 +712,7 @@ if __name__ == '__main__':
 #     all_gen_target.data = {}
 #     gen_target = copy.deepcopy(source_domain)
 
-    for i,d_ID in enumerate(source_domain.data_ID[1350:1500]):
+    for i,d_ID in enumerate(source_domain.data_ID[2600:2750]):
         temp_dict = source_domain.data[d_ID]
         temp_dict["text"] = [s.split(" ") for s in temp_dict["sentence"]]
         g_TD, g_BU = construct_graph(temp_dict)
@@ -741,12 +744,12 @@ if __name__ == '__main__':
 #     all_gen_target.dataclear()
     
             
-    event_dir = os.path.join(data_dir1,"qwen_gen_from_source","3",test_event_name)
+    event_dir = os.path.join(data_dir1,"qwen_gen_from_source","4",test_event_name)
     print(event_dir)
-    if os.path.exists(f"../../autodl-tmp/data/pheme-rnr-dataset/qwen_gen_from_source/3"):
+    if os.path.exists(f"../../autodl-tmp/data/pheme-rnr-dataset/qwen_gen_from_source/4"):
         gen_target.Caches_Data(event_dir)
     else:
-        os.mkdir(f"../../autodl-tmp/data/pheme-rnr-dataset/qwen_gen_from_source/3")
+        os.mkdir(f"../../autodl-tmp/data/pheme-rnr-dataset/qwen_gen_from_source/4")
         gen_target.Caches_Data(event_dir)
     
 #     event_dir1 = os.path.join(data_dir1,"qwen_gen_from_source_all","0",test_event_name)

@@ -1,4 +1,4 @@
 #!/bin/bash
 
 pushd ~/da-mstf_rumor/da-mstf_rumor
-python MCTS_Generator_4.py > ~/autodl-tmp/log/GpDANN/generate_mcts_3_4.log
+python MCTS_Generator_out_0.py > ~/autodl-tmp/log/GpDANN/generate_mcts_15_4.log

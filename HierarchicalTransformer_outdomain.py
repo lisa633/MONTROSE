@@ -1644,7 +1644,7 @@ if __name__ == '__main__':
             torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
         )
     else:
-        for epoch in range(2):
+        for epoch in range(3):
             trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
         torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
     trainer.Training(model, source_domain, unlabeled_target, dev_eval, te_eval, max_iterate=100) 

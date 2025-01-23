@@ -1472,7 +1472,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
                     self.domainAdverPerturb(model, source_domain, pseudo_target)
                 loss, acc = model.lossAndAcc(batch)
                 losses = model.get_CrossEntropyLoss(batch)
-                
+                model_optim.zero_grad()
                 with cockpit(
                     step,
                     extensions.DiagHessian(),  # Other BackPACK quantities can be computed as well
@@ -1484,7 +1484,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
                     },
                 ):
                     losses.backward(create_graph=cockpit.create_graph(step))
-                model_optim.zero_grad()
+                
                 for name, param in model.named_parameters():
                     if hasattr(param, "init_data") and (param.init_data is not None):
                         param.data = param.init_data.clone()

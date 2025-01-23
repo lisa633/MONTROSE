@@ -4,6 +4,7 @@ import re
 import sys, os, dgl, random
 import time
 import matplotlib.pyplot as plt
+from functools import reduce
 
 from transformers import TextGenerationPipeline, GPT2Tokenizer, GPT2LMHeadModel, pipeline
 
@@ -37,7 +38,7 @@ quantities = [
 from prefetch_generator import background
 from BaseModel.BiGCN_Utils.RumorDetectionBasic import BaseEvaluator
 from BaseModel.BiGCN_Utils.GraphRumorDect import BiGCNRumorDetecV2
-from Data.BiGCN_Dataloader import BiGCNTwitterSet, FastBiGCNDataset, MetaMCMCDataset, load_data_all, load_data_twitter15
+from Data.BiGCN_Dataloader import BiGCNTwitterSet, FastBiGCNDataset, MetaMCMCDataset, load_data_all, load_data_twitter15,Merge_data
 from BaseModel.modeling_bert import *
 from transformers.models.bert import BertConfig, BertTokenizer
 import torch, torch.nn as nn
@@ -1500,18 +1501,6 @@ class DgMSTF_Trainer(MetaLearningFramework):
                     te_acc = test_eval(model)
                     print("ST_INFO: iterate:{}, step: {}, val_acc: {}, test_acc: {}".format(self.iterate, step, val_acc, te_acc))
                 
-        # figure_name = f"./Model_Loss_{epoch}.png"
-            
-        # plt.plot(np.arange(len(domain_train_losses)), domain_train_losses,label="domain train loss")
-
-        # plt.plot(np.arange(len(task_train_losses)), task_train_losses, label="task train loss")
-
-        # plt.legend() #显示图例
-        # plt.xlabel('epoches')
-        # #plt.ylabel("epoch")
-        # plt.title('Model Loss')
-        # plt.show()
-        # plt.savefig(figure_name)
         
     def PateroPrint(self, model:TwitterTransformer, testset:MetaMCMCDataset):
         print("here!")
@@ -1572,7 +1561,7 @@ if __name__ == '__main__':
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege','twitter15','twitter16']
     # for domain_ID in range(5):
-    domain_ID = 6
+    domain_ID = 6 #选择目标域，与event_list对应,只需要测5和6
     fewShotCnt = 100
     source_events = []
     target_events = []
@@ -1596,15 +1585,44 @@ if __name__ == '__main__':
         source_events, target_events, fewShotCnt, unlabeled_ratio=0.3
     )
     
+###########################################################
+#     #加载生成数据集
+#     data_dir3 = r"../../autodl-tmp/data/pheme-rnr-dataset/qwen_gen_from_source/" + test_event_name
+#     print(data_dir3)
+#     gen_dataset = MetaMCMCDataset()
+#     gen_dataset.load_data_fast(data_dir3)
+    
+#     gen_target = MetaMCMCDataset()
+#     gen_target.data = {}
+#     rumor_count = 0
+#     non_rumor_count = 0
+#     actual_non = 0
+#     actual_rumor = 0
+#     gen_dataset.data_ID = random.sample(gen_dataset.data_ID, len(gen_dataset.data_ID))
+#     for i,d_ID in enumerate(gen_dataset.data_ID):
+#         if gen_dataset.data[d_ID]['label'] == "rumours":
+            
+#             rumor_count += 1
+#             #控制rumor数量(即label为1的样本)
+#             if rumor_count % 2 == 0:
+#                 gen_target.data[d_ID] = gen_dataset.data[d_ID]
+#                 actual_rumor += 1
+#         else:
+#             non_rumor_count += 1
+#             #控制non-rumor数量(即label为0的样本)
+#             if non_rumor_count % 3 == 0:
+#                 gen_target.data[d_ID] = gen_dataset.data[d_ID]
+#                 actual_non += 1
+        
+#     print("rumor:", actual_rumor)
+#     print("non rumor:", actual_non)
+# #     random.sample(gen_dataset.data_ID,1500)
+#     gen_target.dataclear()
+#     data_list = [unlabeled_target,gen_target]
+#     new_unlabeled_target = reduce(Merge_data,data_list)
 
-    # events_list_all = [os.path.join(data_dir1, dname)
-    #                    for idx, dname in enumerate(events_list)]
-    # tr, _, dev, meta_dev, te = load_data_all(
-    #     events_list_all, 0, unlabeled_ratio=-1
-    # )
-    #
-    # root_dir = "indomain"
-    # test_event_name = "pheme"
+###############################################################
+
 
     logDir = f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/"
 

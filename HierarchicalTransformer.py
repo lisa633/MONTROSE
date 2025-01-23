@@ -1481,7 +1481,7 @@ if __name__ == '__main__':
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
     # for domain_ID in range(5):
-    domain_ID = 3
+    domain_ID = 3 #选择目标域，与event_list对应
     fewShotCnt = 100
     source_events = [os.path.join(data_dir1, dname)
                      for idx, dname in enumerate(events_list) if idx != domain_ID]
@@ -1500,6 +1500,7 @@ if __name__ == '__main__':
 #     unlabeled_target_li = [unlabeled_target.data_ID[i] for i in range(len(unlabeled_target.data_ID))]
 #     print(unlabeled_target_li)
 ###########################################################
+    #加载生成数据集
     print(data_dir2)
     gen_dataset = MetaMCMCDataset()
     gen_dataset.load_data_fast(data_dir2)
@@ -1515,11 +1516,13 @@ if __name__ == '__main__':
         if gen_dataset.data[d_ID]['label'] == "rumours":
             
             rumor_count += 1
+            #控制rumor数量(即label为1的样本)
             if rumor_count % 2 == 0:
                 gen_target.data[d_ID] = gen_dataset.data[d_ID]
                 actual_rumor += 1
         else:
             non_rumor_count += 1
+            #控制non-rumor数量(即label为0的样本)
             if non_rumor_count % 3 == 0:
                 gen_target.data[d_ID] = gen_dataset.data[d_ID]
                 actual_non += 1
@@ -1532,18 +1535,6 @@ if __name__ == '__main__':
     new_unlabeled_target = reduce(Merge_data,data_list)
 
 ###############################################################
-    
-#     gen_labeled = MetaMCMCDataset()
-#     for li in labeled_target_li:
-#         gen_labeled.data[li] = gen_dataset.data[li]
-        
-#     gen_labeled.dataclear()
-    
-#     gen_unlabeled = MetaMCMCDataset()
-#     for li in unlabeled_target_li:
-#         gen_unlabeled.data[li] = gen_dataset.data[li]
-        
-#     gen_unlabeled.dataclear()
 
 
     logDir = f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/"
@@ -1570,6 +1561,7 @@ if __name__ == '__main__':
         else:
             model.save_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")    
 
+    #可以考虑修改的参数包括learning_rate,epsolon_ball,G_lr,D_lr,dStep
     trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=5,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=24, epsilon_ball=5e-4, Lambda=0.1, G_lr = 5e-4, D_lr=2e-4, valid_every=10, dStep=20) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")

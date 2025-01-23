@@ -629,7 +629,7 @@ class FastTwitterDataset(BiGCNTwitterSet, CustomDataset):
                     data_len=self.data_len[index])
 
 
-def Merge_data(data_set1, data_set2, shuffle=False):
+def Merge_data(data_set1, data_set2, shuffle=True):
     new_data = data_set1.__class__()
     new_data.data = dict(data_set1.data, **data_set2.data)
     if shuffle:

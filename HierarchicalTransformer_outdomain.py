@@ -1541,7 +1541,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
             dataset.initLabel(weak_label)
             dataset.initConfidence(confidence.cpu().tolist())
     # #model1, [source_domain], unlabeled_target, val_set, test_target, max_iterate=100
-    def Training(self, model:VirtualModel, source_domain:MetaMCMCDataset, unlabeled_target:PseudoDataset, dev_eval=None, test_eval=None,
+    def Training(self, model:VirtualModel, source_domain:MetaMCMCDataset, unlabeled_target:PseudoDataset, test_set:MetaMCMCDataset, dev_eval=None, test_eval=None,
                         max_iterate=100):
         self.iterate = 0
         for iterate in range(max_iterate):
@@ -1665,7 +1665,7 @@ if __name__ == '__main__':
         for epoch in range(3):
             trainer.optimizeDiscriminator(model, source_domain, new_unlabeled_target, max_step=500)
         torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
-    trainer.Training(model, source_domain, new_unlabeled_target, dev_eval, te_eval, max_iterate=100) 
+    trainer.Training(model, source_domain, new_unlabeled_target, test_set, dev_eval, te_eval, max_iterate=100) 
     
 #     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
 #         model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")

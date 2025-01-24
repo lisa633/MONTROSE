@@ -6,7 +6,11 @@ from typing import List
 
 import numpy as np
 from torch_geometric.data import Data
-from transformers import TextGenerationPipeline, pipeline, GPT2Tokenizer, GPT2LMHeadModel
+# from transformers import TextGenerationPipeline, pipeline, GPT2Tokenizer, GPT2LMHeadModel
+
+from openai import OpenAI
+import torch.nn as nn
+from transformers.models.bert import BertConfig, BertTokenizer
 
 from Data.AmazonLoader import transIrregularWord
 from Data.BiGCN_Data_Utils.twitterloader import BiGCNTwitterSet
@@ -14,7 +18,20 @@ from Data.BiGCN_Dataloader import FastBiGCNDataset, load_data
 from HierarchicalTransformer import obtain_Transformer
 from TrainingEnv import VirtualModel
 
+client = OpenAI(
+            api_key="sk-65734579fab943f48234f366e64ad181", 
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        )
 
+class DomainDiscriminator(VirtualModel):
+    def __init__(self, hidden_size, model_device, learningRate, domain_num):
+        super(DomainDiscriminator, self).__init__()
+        self.discriminator = nn.Sequential(nn.Linear(hidden_size, hidden_size * 2),
+                                      nn.ReLU(),
+                                      nn.Linear(hidden_size * 2, domain_num)).to(model_device)
+
+        self.device = model_device
+        self.learning_rate = learningRate
 class MetaMCMCDataset(FastBiGCNDataset):
 
     def __init__(self, dataset: BiGCNTwitterSet, batch_size=20, beam_K=3, batch_dir="./aug_dir"):
@@ -87,7 +104,7 @@ class MetaMCMCDataset(FastBiGCNDataset):
                             device=device)
         return sents, num_nodes, A_TD, A_BU, torch.tensor(labels), torch.tensor(topic_labels), weights, idxs
 
-    def MCMC_Augmentation(self, model: VirtualModel, lm_generator: TextGenerationPipeline,
+    def MCMC_Augmentation(self, model: VirtualModel, discriminator,
                           max_step=5, early_stop_confidence=0.5, batch_idxs: List = None,
                           batch_size=10, temperature=1.0, kappa=0.5, tr_data_len=4600):
         if not hasattr(self, 'init_length'):
@@ -128,7 +145,7 @@ class MetaMCMCDataset(FastBiGCNDataset):
                      for b_ID, index in zip(batch_IDs, batch_idxs)]
         TD_Graphs_cur = [copy.deepcopy(self.g_TD[self.data_ID[b_idx]]).add_self_loop() for b_idx in batch_idxs]
         BU_Graphs_cur = [copy.deepcopy(self.g_BU[self.data_ID[b_idx]]).add_self_loop() for b_idx in batch_idxs]
-        confidence_cur = self.model_logits(model, texts_cur, TD_Graphs_cur, BU_Graphs_cur, batch_labels)
+        confidence_cur = self.domain_confidence(model, discriminator, texts_cur, TD_Graphs_cur, BU_Graphs_cur, batch_labels)
         best_confidence = confidence_cur.clone()
         for step in range(max_step):
             if confidence_cur.max() < early_stop_confidence:
@@ -144,7 +161,7 @@ class MetaMCMCDataset(FastBiGCNDataset):
                 device=self.device
             )
 
-            reply_sents = self.sample_replies(prompt_sents, lm_generator)
+            reply_sents = self.sample_replies(prompt_sents)
             texts_next = [item[0] for item in items]
             c_idx = 0
             for kk, item in enumerate(items):
@@ -227,20 +244,47 @@ class MetaMCMCDataset(FastBiGCNDataset):
         energy = (batch_labels * (logits.log().neg())).sum(dim=1)
         print("energy : ", energy)
         return energy
+    
+    def domain_confidence(self,model: VirtualModel, discriminator, texts: List, TD_graphs: List, BU_graphs: List,
+                     batch_labels: torch.Tensor, temperature=1.0):
+        sentences = [text for s_list in texts for text in s_list]
+        print("sentences:",sentences)
+        big_g_TD = dgl.batch(TD_graphs)
+        big_g_BU = dgl.batch(BU_graphs)
+        A_TD = big_g_TD.adjacency_matrix().to_dense().to(self.device)
+        A_BU = big_g_BU.adjacency_matrix().to_dense().to(self.device)
+        adj_mtx = (A_TD + A_BU).__ne__(0.0).float()
+        attn_mask = (-10000 * (1.0 - adj_mtx)).unsqueeze(0).unsqueeze(0)
+        inputs = self.sent2vec(sentences)
+        num_nodes = [g.num_nodes() for g in TD_graphs]
+        root_idxs = [sum(num_nodes[:idx]) for idx in range(len(num_nodes))]
+        rst = self.prop_model(inputs.unsqueeze(0), attention_mask=attn_mask, root_idxs=root_idxs)
+        hiddens = rst[0].squeeze(0)
+        with torch.no_grad():
+            vecs = model.Batch2Vecs(hiddens)
+        probs = discriminator(vecs).softmax(dim=1)
+        softmax_value = probs[:,domain_ID]
+        return softmax_value.item()
+        
 
-    def sample_replies(self, sents, lm_generator: TextGenerationPipeline):
+
+    def sample_replies(self, sents):
         replies_list = []
         lens = [len(sent.split()) for sent in sents]
-        for idx in range(0, len(sents), 1):
-            with torch.no_grad():
-                rst = lm_generator([sents[idx]],
-                                   num_return_sequences=self.beam_K,
-                                   min_length=lens[idx] + 20,
-                                   max_length=lens[idx] + 64,  # max length of the generated text
-                                   return_full_text=False)
-                replies = [item[0]['generated_text'] for item in rst]
-                torch.cuda.empty_cache()
-                replies_list.append(replies)
+        for sent in sents:
+            try:
+                completion = client.chat.completions.create(
+                model="qwen-plus", # 模型列表：https://help.aliyun.com/zh/model-studio/getting-started/models
+                messages=[
+                    {'role': 'system', 'content': 'You are a twitter user. You can rephrase twitter-form reply in English.'},
+                    {'role': 'user', 'content': 'The given twitter is:'+sent+'Please rephrase the given twitter to make it like a reply in English no more than 64 words without \'Note\''}],
+                )
+                generate_sents = completion.choices[0].message.content
+            except:
+                generate_sents = " "
+            if len(generate_sents) > 0:
+                replies_list.append(generate_sents)
+
         sampled_replies = [transIrregularWord(random.sample(rl, 1)[0]) for rl in replies_list]
         return sampled_replies
 
@@ -331,7 +375,7 @@ def get_new_model_path(model_dir):
 if __name__ == '__main__':
     # log_dir = str(__file__).rstrip(".py")
     running_dir = os.getcwd() + "/tmp/"
-    data_dir = r"D:\科研\MetaGenerator\pheme-rnr-dataset"
+    data_dir = r"../../autodl-tmp/data/pheme-rnr-dataset/"
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting', 'sydneysiege']
     # for domain_ID in range(5):
     domain_ID = 0
@@ -353,18 +397,27 @@ if __name__ == '__main__':
     tr_data_len = len(tr.data)
     print("tr_data_len", tr_data_len)
 
-    bertPath = r"D:\科研\MCMC\models\bert-base-uncased"
+    bertPath = r"../../autodl-tmp/bert_en"
+    bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
+    model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model = obtain_Transformer(bertPath)
     model.load_model(os.path.join(log_dir, f'BiGCN_{test_event_name}.pkl'))
-    tok = GPT2Tokenizer.from_pretrained("D:\科研\MCMC\gpt2")
-    # tok.model_max_length = 128
-    gpt2 = GPT2LMHeadModel.from_pretrained("D:\科研\MCMC\gpt2").cuda()
-    from transformers import pipeline
 
-    lm_generator = pipeline('text-generation', model=gpt2, tokenizer=tok, device=0 if torch.cuda.is_available() else -1)
+    discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
+                                    model_device = model_device,
+                                    learningRate=2e-5,
+                                    domain_num=5)
+    
+    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl"):
+        discriminator.load_state_dict(
+            torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
+        )
+    else:
+        print("warning: no discriminator!")
+
 
     for i in range(1500):
-        tr.MCMC_Augmentation(model, lm_generator, max_step=5, batch_size=32, temperature=0.1, tr_data_len=tr_data_len)
+        tr.MCMC_Augmentation(model, discriminator, max_step=5, batch_size=32, temperature=0.1, tr_data_len=tr_data_len)
         new_path = get_new_model_path(running_dir)
         if new_path is not None:
             model.load_model(new_path)

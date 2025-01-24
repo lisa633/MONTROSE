@@ -40,8 +40,8 @@ from BaseModel.BiGCN_Utils.GraphRumorDect import BiGCNRumorDetecV2
 from Data.BiGCN_Dataloader import BiGCNTwitterSet, FastBiGCNDataset, MetaMCMCDataset, load_data_all, load_data_twitter15, Merge_data
 from BaseModel.modeling_bert import *
 from transformers.models.bert import BertConfig, BertTokenizer
-os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2,3" 
-device_id = [0,1,2,3]
+os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
+device_id = [0]
 import torch, torch.nn as nn
 from typing import List, AnyStr
 from torch.utils.data import Dataset
@@ -63,7 +63,7 @@ class SentBert(nn.Module):
         # self.model = BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda'))
         self.model = nn.DataParallel(
             BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda')),
-            device_ids=[0,1,2,3],
+            device_ids=[0],
 #             device_ids = [0]
         )
 

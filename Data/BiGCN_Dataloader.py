@@ -229,6 +229,7 @@ class MetaMCMCDataset(FastBiGCNDataset):
 
             rst[i].read_indexs = np.arange(len(real_idxs))
 
+        print(rst[0][0])
         return rst
     
 
@@ -629,36 +630,22 @@ class FastTwitterDataset(BiGCNTwitterSet, CustomDataset):
                     data_len=self.data_len[index])
 
 
-def Merge_data(data_set1, data_set2, shuffle=False):
+def Merge_data(data_set1, data_set2):
     new_data = data_set1.__class__()
     new_data.data = dict(data_set1.data, **data_set2.data)
-    if shuffle:
-        new_data_ID_list = data_set1.data_ID + data_set2.data_ID
-        new_data.data_ID = random.sample(new_data_ID_list, len(new_data_ID_list))
-        new_data._confidence = torch.ones(len(new_data.data_ID),device=torch.device('cuda'))
-        new_data._entrophy = torch.zeros(len(new_data.data_ID),device=torch.device('cuda'))
-        new_data.read_indexs = np.arange(len(new_data.data_ID))
-        new_data.instance_weights = torch.ones([len(new_data.data_ID)], dtype=torch.float32,device=torch.device('cuda'))
-        for i in range(len(new_data.data_ID)):  # pre processing the extra informations
-            new_data.data_len.append(len(new_data.data[new_data.data_ID[i]]['text']))
-            if new_data.data[new_data.data_ID[i]]['label'] == "rumours":
-                new_data.data_y.append([0.0, 1.0])
-            else:
-                new_data.data_y.append([1.0, 0.0])
-    else:
-        new_data.data_ID = np.concatenate([np.array(data_set1.data_ID),
-                                           np.array(data_set2.data_ID)]).tolist()
-        new_data.data_len = np.concatenate([np.array(data_set1.data_len),
-                                            np.array(data_set2.data_len)]).tolist()
-        new_data.read_indexs = np.arange(len(new_data.data_ID))
-        new_data._confidence = torch.cat([data_set1._confidence,
-                                               data_set2._confidence], dim=0)
-        new_data._entrophy = torch.cat([data_set1._entrophy,
-                                               data_set2._entrophy], dim=0)
-        new_data.data_y = np.concatenate([np.array(data_set1.data_y),
-                                          np.array(data_set2.data_y)]).tolist()
-        new_data.instance_weights = torch.cat([data_set1.instance_weights,
-                                               data_set2.instance_weights], dim=0)
+    new_data.data_ID = np.concatenate([np.array(data_set1.data_ID),
+                                       np.array(data_set2.data_ID)]).tolist()
+    new_data.data_len = np.concatenate([np.array(data_set1.data_len),
+                                        np.array(data_set2.data_len)]).tolist()
+    new_data.read_indexs = np.arange(len(new_data.data_ID))
+    new_data._confidence = torch.cat([data_set1._confidence,
+                                           data_set2._confidence], dim=0)
+    new_data._entrophy = torch.cat([data_set1._entrophy,
+                                           data_set2._entrophy], dim=0)
+    new_data.data_y = np.concatenate([np.array(data_set1.data_y),
+                                      np.array(data_set2.data_y)]).tolist()
+    new_data.instance_weights = torch.cat([data_set1.instance_weights,
+                                           data_set2.instance_weights], dim=0)
     return new_data
 
 

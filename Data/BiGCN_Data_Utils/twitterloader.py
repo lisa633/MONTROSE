@@ -273,39 +273,37 @@ class TwitterLoader(RumorLoader):
         self.data[key]['tweet_id'] = [self.data[key]['tweet_id'][idx] for idx in temp_idxs]
         self.data[key]['reply_to'] = [self.data[key]['reply_to'][idx] for idx in temp_idxs]
 
-    def gather_posts(self, key, temp_idxs, post_fn, merge = True):
-        if merge:
-            id2idx = {t_id: idx for idx, t_id in enumerate(self.data[key]['tweet_id'])}
-            id2idx[None] = -1
-            self.data[key]['text'] = []
-            ttext = ""
-            for i in range(len(temp_idxs)):
-                if i % post_fn == 0:  # merge the fixed number of texts in a time interval
-                    if len(ttext) > 0:  # if there are data already in ttext, output it as a new instance
-                        words = self.transIrregularWord(ttext, self.seg)
-                        self.data[key]['text'].append(words)
-                        ttext = ''
-                    else:
-                        ttext = self.data[key]['sentence'][i]
+    def gather_posts(self, key, temp_idxs, post_fn):
+        id2idx = {t_id: idx for idx, t_id in enumerate(self.data[key]['tweet_id'])}
+        id2idx[None] = -1
+        self.data[key]['text'] = []
+        ttext = ""
+        for i in range(len(temp_idxs)):
+            if i % post_fn == 0:  # merge the fixed number of texts in a time interval
+                if len(ttext) > 0:  # if there are data already in ttext, output it as a new instance
+                    words = self.transIrregularWord(ttext, self.seg)
+                    self.data[key]['text'].append(words)
+                    ttext = ''
                 else:
-                    ttext += " " + self.data[key]['sentence'][i]
-            # keep the last one
-            if len(ttext) > 0:
-                words = self.transIrregularWord(ttext)
-                self.data[key]['text'].append(words)
-        else:
-            self.data[key]['text'] = [self.transIrregularWord(self.data[key]['sentence'][i]) for i in temp_idxs]
+                    ttext = self.data[key]['sentence'][i]
+            else:
+                ttext += " " + self.data[key]['sentence'][i]
+        # keep the last one
+        if len(ttext) > 0:
+            words = self.transIrregularWord(ttext)
+            self.data[key]['text'].append(words)
 #         print(self.data[key]['tweet_id'])
 #         print(self.data[key]['topic_label'])
 #         print("text:",self.data[key]['text'])
 #         print("sentence:",self.data[key]['sentence'])
 #         assert len(self.data[key]['text']) == len(self.data[key]['sentence'])
 
-    def dataclear(self, post_fn=1, merge = True):
-        for key, value in self.data.items():
+    def dataclear(self, post_fn=1):
+        print("data clear here:")
+        for key, value in tqdm(self.data.items()):
             temp_idxs = np.array(self.data[key]['created_at']).argsort().tolist()
             self.sort_by_timeline(key, temp_idxs)
-            self.gather_posts(key, temp_idxs, post_fn, merge)
+            self.gather_posts(key, temp_idxs, post_fn)
 
         for key in self.data.keys():
             self.data_ID.append(key)
@@ -314,6 +312,7 @@ class TwitterLoader(RumorLoader):
         self._confidence = torch.ones(len(self.data_ID),device=torch.device('cuda'))
         self._entrophy = torch.zeros(len(self.data_ID),device=torch.device('cuda'))
         self.read_indexs = np.arange(len(self.data_ID))
+#         print(self.read_indexs)
         self.instance_weights = torch.ones([len(self.data_ID)], dtype=torch.float32,device=torch.device('cuda'))
 
         for i in range(len(self.data_ID)):  # pre processing the extra informations
@@ -381,9 +380,7 @@ class Covid19Loader(RumorLoader):
     def construct_graph(self, index, d_ID):
         edges = self.data[d_ID]['edges']
         src = np.array([item[0] for item in edges])
-        print("src:",src)
         dst = np.array([item[1] for item in edges])
-        print("dst:",dst)
         g_TD = dgl.graph((dst, src), num_nodes=self.data_len[index])
         g_BU = dgl.graph((src, dst), num_nodes=self.data_len[index])
         return g_TD, g_BU
@@ -490,7 +487,7 @@ class BiGCNTwitterSet(TwitterSet):
         tIds_dic = {}
         dup_cnt = 0
         dup_idxs = []
-        for idx, ID in enumerate(self.data[d_ID]["tweet_id"][:self.data_len[index]]):
+        for idx, ID in enumerate(self.data[d_ID]["tweet_id"]):
             if ID in tIds_dic:
                 self.data_len[index] -= 1
                 dup_cnt += 1

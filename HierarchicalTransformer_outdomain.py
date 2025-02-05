@@ -62,7 +62,7 @@ class SentBert(nn.Module):
         # self.model = BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda'))
         self.model = nn.DataParallel(
             BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda')),
-            device_ids=[0,1,2,3],
+            device_ids=[0,1],
             #device_ids = [0]
         )
 
@@ -470,7 +470,7 @@ class BiGCNTrainer(RumorBaseTrainer):
 
         cockpit = Cockpit(model.rdm_cls.parameters(), quantities=quantities)
         plotter = CockpitPlotter()
-        max_steps, global_step = 750, 0
+        max_steps, global_step = 500, 0
 
         for epoch in range(max_epochs):
             train_loader = self.trainset2trainloader(model, train_set, shuffle=True, batch_size=batch_size)
@@ -1557,7 +1557,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
 if __name__ == '__main__':
     data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
     data_dir2 = r"../../autodl-tmp/data/t1516/"
-    os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2,3" 
+    os.environ['CUDA_VISIBLE_DEVICES'] = "0,1" 
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege','twitter15','twitter16']
     # for domain_ID in range(5):
@@ -1610,7 +1610,7 @@ if __name__ == '__main__':
         else:
             non_rumor_count += 1
             #控制non-rumor数量(即label为0的样本)
-            if non_rumor_count % 2 == 0:
+            if non_rumor_count % 1 == 0:
                 gen_target.data[d_ID] = gen_dataset.data[d_ID]
                 actual_non += 1
         
@@ -1640,7 +1640,7 @@ if __name__ == '__main__':
     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):
         model.load_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")
     else:
-        trainer.fit(model, source_domain, dev_eval, te_eval, batch_size=32, grad_accum_cnt=1, learning_rate=5e-5,
+        trainer.fit(model, source_domain, dev_eval, te_eval, batch_size=32, grad_accum_cnt=1, learning_rate=5e-6,
                 max_epochs=25,
                 model_file=os.path.join(logDir, f'BiGCN_{test_event_name}.pkl'))
         if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):
@@ -1648,7 +1648,7 @@ if __name__ == '__main__':
         else:
             model.save_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")    
 
-    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=7,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=20, epsilon_ball=5e-5,gStep=5, Lambda=0.1, G_lr = 5e-5, D_lr=2e-4, valid_every=10, dStep=20) 
+    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=7,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=32, epsilon_ball=5e-6,gStep=5, Lambda=0.1, G_lr = 5e-6, D_lr=2e-4, valid_every=10, dStep=10) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
@@ -1662,10 +1662,10 @@ if __name__ == '__main__':
             torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
         )
     else:
-        for epoch in range(3):
-            trainer.optimizeDiscriminator(model, source_domain, new_unlabeled_target, max_step=500)
+        for epoch in range(2):
+            trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
         torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
-    trainer.Training(model, source_domain, new_unlabeled_target, test_set, dev_eval, te_eval, max_iterate=100) 
+    trainer.Training(model, source_domain, unlabeled_target, test_set, dev_eval, te_eval, max_iterate=100) 
     
 #     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
 #         model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")

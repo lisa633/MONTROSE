@@ -1589,7 +1589,7 @@ if __name__ == '__main__':
     source_domain, labeled_target, val_set, test_set, unlabeled_target = load_data(
         source_events, target_events, fewShotCnt, unlabeled_ratio=0.3
     )
-    
+    logDir = f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/"
     bertPath = r"../../autodl-tmp/bert_en"
     model = obtain_Transformer(bertPath)
 
@@ -1604,26 +1604,30 @@ if __name__ == '__main__':
     trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=7,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=32, epsilon_ball=5e-6,gStep=5, Lambda=0.1, G_lr = 5e-6, D_lr=2e-4, valid_every=10, dStep=5) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-
+    trainer.PseudoLabeling(model, unlabeled_target)
+    trainer.Selection(unlabeled_target)
     params = torch.cat([param.view(-1) for param in model.parameters()]).detach().cpu().numpy()
 
     gradients = []
     model_optim = torch.optim.Adam([
             {'params': model.parameters(), 'lr': trainer.lr4model}
         ])
+    step = 0 
 
-    for _ in range(100):
-        for batch in DgMSTF_Loader([source_domain], unlabeled_target,
-                                    batch_size=trainer.max_batch_size,
-                                    source_ratio=trainer.train_mix_ratio,
-                                    reshuffle=True):
+    for batch in DgMSTF_Loader([source_domain], unlabeled_target,
+                                batch_size=trainer.max_batch_size,
+                                source_ratio=trainer.train_mix_ratio,
+                                reshuffle=True):
+        print("step:",step)
 
-            model_optim.zero_grad()
-            loss, acc = model.lossAndAcc(batch)
-            losses = model.get_CrossEntropyLoss(batch)
-            losses.backward()
-            grad = torch.cat([param.grad.view(-1) for param in model.parameters()]).detach().cpu().numpy()
-            gradients.append(grad)
+        model_optim.zero_grad()
+        losses = model.get_CrossEntropyLoss(batch)
+        losses.backward()
+        grad = torch.cat([param.grad.view(-1) for param in model.parameters()]).detach().cpu().numpy()
+        gradients.append(grad)
+        step += 1
+        if step >= 10:
+            break
 
     pca = PCA(n_components=2)
     pca.fit(gradients)
@@ -1634,23 +1638,28 @@ if __name__ == '__main__':
     alpha = np.linspace(-1, 1, grid_size)
     beta = np.linspace(-1, 1, grid_size)
     alpha, beta = np.meshgrid(alpha, beta)
-
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device('cpu')
     # 计算每个点的损失值
     loss_values = np.zeros((grid_size, grid_size))
-    for i in range(grid_size):
-        for j in range(grid_size):
-            for batch in DgMSTF_Loader([source_domain], unlabeled_target,
-                                    batch_size=trainer.max_batch_size,
-                                    source_ratio=trainer.train_mix_ratio,
-                                    reshuffle=True):
+    count = 0
+    for batch in DgMSTF_Loader([source_domain], unlabeled_target,
+                                batch_size=trainer.max_batch_size,
+                                source_ratio=trainer.train_mix_ratio,
+                                reshuffle=True):
+        count += 1
+        for i in range(grid_size):
+            print("i:",i)
+            for j in range(grid_size):
+
                 perturbed_params = torch.tensor(params, dtype=torch.float32) + alpha[i, j] * direction1 + beta[i, j] * direction2
                 idx = 0
                 for param in model.parameters():
                     size = param.numel()
                     param.data = perturbed_params[idx:idx + size].view(param.size())
                     idx += size
-                loss, acc = model.lossAndAcc(batch)
                 loss_values[i,j] = model.get_CrossEntropyLoss(batch)
+        if count >1:
+            break
 
     # 绘制损失面
     fig = plt.figure(figsize=(10, 8))
@@ -1661,6 +1670,6 @@ if __name__ == '__main__':
     ax.set_ylabel('PCA Direction 2')
     ax.set_zlabel('Loss')
     ax.set_title('Loss Surface Visualization with PCA Directions')
-    plt.show()
+    plt.save("loss.png")
 
 

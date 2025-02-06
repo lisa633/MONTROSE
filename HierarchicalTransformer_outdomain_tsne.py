@@ -1,5 +1,6 @@
 import copy
 import pickle
+import json
 import re
 import sys, os, dgl, random
 import time
@@ -46,7 +47,7 @@ from transformers.models.bert import BertConfig, BertTokenizer
 import torch, torch.nn as nn
 from typing import List, AnyStr
 from torch.utils.data import Dataset
-from Data.BiGCN_Dataloader_out import load_data
+from Data.BiGCN_Dataloader_out import load_data, load_events
 from BaseModel.BiGCN_Utils.RumorDetectionBasic import RumorBaseTrainer
 import pdb
 from TrainingEnv import VirtualModel, CustomDataset, GradientReversal
@@ -64,7 +65,7 @@ class SentBert(nn.Module):
         # self.model = BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda'))
         self.model = nn.DataParallel(
             BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda')),
-            device_ids=[0,1],
+            device_ids=[0],
             #device_ids = [0]
         )
 
@@ -1584,91 +1585,108 @@ if __name__ == '__main__':
     test_event_name = events_list[domain_ID]
     #train_set, labeled_target, val_set, test_set, unlabeled_target
     source_domain, labeled_target, val_set, test_set, unlabeled_target = load_data(
-        source_events, target_events, fewShotCnt, unlabeled_ratio=0.3
+        source_events, target_events, fewShotCnt, unlabeled_ratio=0
     )
+    source_pos = MetaMCMCDataset()
+    source_pos.data = {}
+    source_neg = MetaMCMCDataset()
+    source_neg.data = {}
     
-###########################################################
-    #加载生成数据集
-    data_dir3 = r"../../autodl-tmp/data/pheme-rnr-dataset/qwen_gen_from_source/" + test_event_name
-    print(data_dir3)
-    gen_dataset = MetaMCMCDataset()
-    gen_dataset.load_data_fast(data_dir3)
-    
-    gen_target = MetaMCMCDataset()
-    gen_target.data = {}
     rumor_count = 0
     non_rumor_count = 0
-    actual_non = 0
-    actual_rumor = 0
-    gen_dataset.data_ID = random.sample(gen_dataset.data_ID, len(gen_dataset.data_ID))
-    for i,d_ID in enumerate(gen_dataset.data_ID):
-        if gen_dataset.data[d_ID]['label'] == "rumours":
-            
+    
+    for i,d_ID in enumerate(source_domain.data_ID):
+        if source_domain.data[d_ID]['label'] == "rumours":
+            source_pos.data[d_ID] = source_domain.data[d_ID]
             rumor_count += 1
-            #控制rumor数量(即label为1的样本)
-            if rumor_count % 1 == 0:
-                gen_target.data[d_ID] = gen_dataset.data[d_ID]
-                actual_rumor += 1
-        else:
+            if rumor_count >= 500:
+                break
+                
+    for i,d_ID in enumerate(source_domain.data_ID):
+        if source_domain.data[d_ID]['label'] != "rumours":
+            source_neg.data[d_ID] = source_domain.data[d_ID]
             non_rumor_count += 1
-            #控制non-rumor数量(即label为0的样本)
-            if non_rumor_count % 1 == 0:
-                gen_target.data[d_ID] = gen_dataset.data[d_ID]
-                actual_non += 1
+            if non_rumor_count >= 500:
+                break
+    source_pos.dataclear()
+    source_neg.dataclear()
+                
+    target_pos = MetaMCMCDataset()
+    target_pos.data = {}
+    target_neg = MetaMCMCDataset()
+    target_neg.data = {}
+    
+    rumor_count = 0
+    non_rumor_count = 0
+    
+    label_file = f"./label_15.json"
+    label_data = json.load(open(label_file, mode="r", encoding="utf-8"))
+    
+    for i,d_ID in enumerate(unlabeled_target.data_ID):
         
-    print("rumor:", actual_rumor)
-    print("non rumor:", actual_non)
-#     random.sample(gen_dataset.data_ID,1500)
-    gen_target.dataclear()
-    data_list = [unlabeled_target,gen_target]
-    new_unlabeled_target = reduce(Merge_data,data_list)
-
-###############################################################
-
-
-    logDir = f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/"
-
-    print("%s : (dev event)/(test event)/(train event) = %3d/%3d/%3d" % (
-        test_event_name, len(val_set), len(test_set), len(source_domain)))
-    # print("\n\n===========%s Train===========\n\n" % te.data[te.data_ID[0]]['event'])
-    print("\n\n===========%s Out Domain Train===========\n\n" % test_event_name)
+        if label_data[d_ID] != "non-rumor":
+            target_pos.data[d_ID] = unlabeled_target.data[d_ID]
+            rumor_count += 1
+            if rumor_count >= 500:
+                break
+                
+    for i,d_ID in enumerate(unlabeled_target.data_ID):
+         if label_data[d_ID] == "non-rumor":
+            target_neg.data[d_ID] = unlabeled_target.data[d_ID]
+            non_rumor_count += 1
+            if non_rumor_count >= 500:
+                break
+    target_pos.dataclear()
+    target_neg.dataclear()
+    new_data_list = []
+    new_data_list.append(source_pos)
+    new_data_list.append(source_neg)
+    new_data_list.append(target_pos)
+    new_data_list.append(target_neg)
 
     bertPath = r"../../autodl-tmp/bert_en"
     model = obtain_Transformer(bertPath)
-    source_domain.initGraph()
-    dev_eval = TransformerEvaluator(val_set, batch_size=20)
-    te_eval = TransformerEvaluator(test_set, batch_size=20)
-    trainer = MCMCBiGCNTrainer(logDir, None, model_rename=False, beam_K=3, batch_dir=f"./aug_dir4")
-    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):
-        model.load_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")
-    else:
-        trainer.fit(model, source_domain, dev_eval, te_eval, batch_size=32, grad_accum_cnt=1, learning_rate=5e-6,
-                max_epochs=25,
-                model_file=os.path.join(logDir, f'BiGCN_{test_event_name}.pkl'))
-        if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):
-            model.load_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")
-        else:
-            model.save_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")    
 
-    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=7,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=32, epsilon_ball=5e-6,gStep=5, Lambda=0.1, G_lr = 5e-6, D_lr=2e-4, valid_every=10, dStep=10) 
+#     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):
+#         model.load_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")
+#     else:
+#         print("no model!")
+    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS100.pkl"):
+        model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS100.pkl")
+    else:
+        print("no model!")
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
-                                        model_device = model_device,
-                                        learningRate=2e-5,
-                                        domain_num=7)
-    trainer.domain_discriminator = discriminator
-    print("being domain discriminate!")
-    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl"):
-        trainer.domain_discriminator.load_state_dict(
-            torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
-        )
-    else:
-        for epoch in range(2):
-            trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
-        torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
+
+    vec_list = []
+    print("here!")
+        
+    for i in range(len(new_data_list)):
+        for batch in DANN_Dataloader([new_data_list[i]], batch_size=200):
+            with torch.no_grad():
+                vecs = model.Batch2Vecs(batch).cpu().numpy()
+        vec_list.append(vecs)
+
+    print("len:",len(vec_list))
+        
     
-    for batch in DANN_Dataloader([new_unlabeled_target], batch_size=trainer.max_batch_size):
-        vecs = model.Batch2Vecs(batch)
-        print(vecs.shape)
+ 
+    tsne = TSNE(n_components=2,random_state=100,perplexity =100,n_iter=1000)
+    all_feuture_tsne_0 = tsne.fit_transform(vec_list[0])
+    plt.figure(figsize=(8, 6))
+    plt.scatter(all_feuture_tsne_0[:, 0], all_feuture_tsne_0[:, 1],c='#FF9999') #red
     
+    all_feuture_tsne_1 = tsne.fit_transform(vec_list[1])
+    plt.scatter(all_feuture_tsne_1[:, 0], all_feuture_tsne_1[:, 1],c='#99CCFF') #blue
+    
+    all_feuture_tsne_2 = tsne.fit_transform(vec_list[2])
+    plt.scatter(all_feuture_tsne_2[:, 0], all_feuture_tsne_2[:, 1],c='#FFD700') #yellow
+    
+    all_feuture_tsne_3 = tsne.fit_transform(vec_list[3])
+    plt.scatter(all_feuture_tsne_3[:, 0], all_feuture_tsne_3[:, 1],c='#B3E0BF') #green
+
+    # 添加图例和标签
+    plt.title('t-SNE Visualization of Domain Adaptation', fontsize=14)
+
+    # 显示图形
+    plt.savefig("t-SNE.png")

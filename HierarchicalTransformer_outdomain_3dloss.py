@@ -1628,17 +1628,17 @@ if __name__ == '__main__':
         step += 1
         if step >= 10:
             break
-
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device('cpu')
     pca = PCA(n_components=2)
     pca.fit(gradients)
-    direction1 = torch.tensor(pca.components_[0], dtype=torch.float32)
-    direction2 = torch.tensor(pca.components_[1], dtype=torch.float32)
+    direction1 = torch.tensor(pca.components_[0], dtype=torch.float32,device=device)
+    direction2 = torch.tensor(pca.components_[1], dtype=torch.float32,device=device)
 
     grid_size = 50
     alpha = np.linspace(-1, 1, grid_size)
     beta = np.linspace(-1, 1, grid_size)
     alpha, beta = np.meshgrid(alpha, beta)
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device('cpu')
+
     # 计算每个点的损失值
     loss_values = np.zeros((grid_size, grid_size))
     count = 0
@@ -1651,13 +1651,13 @@ if __name__ == '__main__':
             print("i:",i)
             for j in range(grid_size):
 
-                perturbed_params = torch.tensor(params, dtype=torch.float32) + alpha[i, j] * direction1 + beta[i, j] * direction2
+                perturbed_params = torch.tensor(params, dtype=torch.float32,device=device) + alpha[i, j] * direction1 + beta[i, j] * direction2
                 idx = 0
                 for param in model.parameters():
                     size = param.numel()
                     param.data = perturbed_params[idx:idx + size].view(param.size())
                     idx += size
-                loss_values[i,j] = model.get_CrossEntropyLoss(batch)
+                loss_values[i,j] = model.get_CrossEntropyLoss(batch).item()
         if count >1:
             break
 

@@ -1558,6 +1558,132 @@ class DgMSTF_Trainer(MetaLearningFramework):
             self.PateroPrint(model, test_set)
             
             self.iterate += 1
+    def obtain_task_direction(self,model:TwitterTransformer, source_domain:MetaMCMCDataset, unlabeled_target:PseudoDataset):
+        self.PseudoLabeling(model, unlabeled_target)
+        self.Selection(unlabeled_target)
+        gradients = []
+        model_optim = torch.optim.Adam([
+                {'params': model.parameters(), 'lr': self.lr4model}
+            ])
+        step = 0 
+
+        for batch in DgMSTF_Loader([source_domain], unlabeled_target,
+                                    batch_size=self.max_batch_size,
+                                    source_ratio=self.train_mix_ratio,
+                                    reshuffle=True):
+            print("step:",step)
+            if step%trainer.alternate_gap == 0:
+                self.domainAdverPerturb(model, source_domain, unlabeled_target)
+
+            model_optim.zero_grad()
+            losses = model.get_CrossEntropyLoss(batch)
+            losses.backward()
+            grad = torch.cat([param.grad.view(-1) for param in model.parameters()]).detach().cpu().numpy()
+            gradients.append(grad)
+            step += 1
+            if step >= 20:
+                break
+        pca = PCA(n_components=2)
+        pca.fit(gradients)
+        direction1 = torch.tensor(pca.components_[0], dtype=torch.float32,device=model_device)
+        direction2 = torch.tensor(pca.components_[1], dtype=torch.float32,device=model_device)
+        return direction1,direction2
+    
+    def obtain_domain_direction(self, model:TwitterTransformer, source_domains:MetaMCMCDataset, target:MetaMCMCDataset):
+        gradients = []
+        domain_optim = torch.optim.Adam(self.domain_discriminator.parameters(), lr=self.D_lr)
+        step = 0
+        for batch in DANN_Dataloader([source_domains] + [target], batch_size=self.max_batch_size):
+            print("step:",step)
+            domain_optim.zero_grad()
+            with torch.no_grad():
+                vecs = model.Batch2Vecs(batch)
+            logits = self.domain_discriminator(vecs)
+            domain_loss = F.cross_entropy(logits, batch[-1])
+            domain_loss.backward()
+            grad = torch.cat([param.grad.view(-1) for param in self.domain_discriminator.parameters()]).detach().cpu().numpy()
+            gradients.append(grad)
+            step += 1
+            if step >= 20:
+                break
+        pca = PCA(n_components=2)
+        pca.fit(gradients)
+        direction1 = torch.tensor(pca.components_[0], dtype=torch.float32,device=model_device)
+        direction2 = torch.tensor(pca.components_[1], dtype=torch.float32,device=model_device)
+        return direction1,direction2
+    
+    def print_sharpness(self, model:TwitterTransformer, source_domains:MetaMCMCDataset, unlabeled_target:MetaMCMCDataset):
+        task_d1,task_d2 = self.obtain_task_direction(model, source_domains, unlabeled_target)
+        domain_d1,domain_d2 = self.obtain_domain_direction(model, source_domains, unlabeled_target)
+        grid_size = 50
+        alpha = np.linspace(-1, 1, grid_size)
+        beta = np.linspace(-1, 1, grid_size)
+        alpha, beta = np.meshgrid(alpha, beta)
+
+        # 计算每个点的损失值
+        task_loss_values = np.zeros((grid_size, grid_size))
+        domain_loss_values = np.zeros((grid_size, grid_size))
+        count = 0
+        params = torch.cat([param.view(-1) for param in model.parameters()]).detach().cpu().numpy()
+        torch.cuda.empty_cache()
+        for batch in DgMSTF_Loader([source_domain], unlabeled_target,
+                                    batch_size=32,
+                                    source_ratio=trainer.train_mix_ratio,
+                                    reshuffle=True):
+            count += 1
+            trainer.domainAdverPerturb(model, source_domain, unlabeled_target)
+            for i in range(grid_size):
+                print("i:",i)
+                for j in range(grid_size):
+
+                    perturbed_params = torch.tensor(params, dtype=torch.float32,device=model_device) + alpha[i, j] * task_d1 + beta[i, j] * task_d2
+                    idx = 0
+                    for param in model.parameters():
+                        size = param.numel()
+                        param.data = perturbed_params[idx:idx + size].view(param.size())
+                        idx += size
+                    with torch.no_grad():
+                        task_loss_values[i,j] = model.get_CrossEntropyLoss(batch).item()
+            if count >=1:
+                break
+
+        domain_count = 0
+        domain_params = torch.cat([domain_params.view(-1) for domain_params in self.domain_discriminator.parameters()]).detach().cpu().numpy()
+        torch.cuda.empty_cache()
+        for batch in DANN_Dataloader([source_domains] + [unlabeled_target], batch_size=self.max_batch_size):
+            domain_count += 1
+            for i in range(grid_size):
+                print("i:",i)
+                for j in range(grid_size):
+                    perturbed_params = torch.tensor(domain_params, dtype=torch.float32,device=model_device) + alpha[i, j] * domain_d1 + beta[i, j] * domain_d2
+                    idx = 0
+                    for param in self.domain_discriminator.parameters():
+                        size = param.numel()
+                        param.data = perturbed_params[idx:idx + size].view(param.size())
+                        idx += size
+                    with torch.no_grad():
+                        vecs = model.Batch2Vecs(batch)
+                    logits = self.domain_discriminator(vecs)
+                    domain_loss_values[i,j] = F.cross_entropy(logits, batch[-1]).item()
+            if domain_count >=1:
+                break
+
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        ax.plot_surface(alpha, beta, task_loss_values, cmap='coolwarm', edgecolor='none')
+
+
+        ax.set_zlabel('Loss')
+        plt.savefig("loss.png")
+
+        domain_fig = plt.figure(figsize=(10, 8))
+        domain_ax = domain_fig.add_subplot(111, projection='3d')
+        domain_ax.plot_surface(alpha, beta, domain_loss_values, cmap='coolwarm', edgecolor='none')
+
+
+        domain_ax.set_zlabel('Loss')
+        plt.savefig("domain_loss.png")
+
 
 if __name__ == '__main__':
     data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
@@ -1601,7 +1727,7 @@ if __name__ == '__main__':
         model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS100.pkl")
     else:
         print("no model!")
-    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=7,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=32, epsilon_ball=5e-6,gStep=5, Lambda=0.1, G_lr = 5e-6, D_lr=2e-4, valid_every=10, dStep=5) 
+    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=7,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=32, epsilon_ball=5e-5,gStep=5, Lambda=0.1, G_lr = 5e-5, D_lr=2e-4, valid_every=10, dStep=10) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
@@ -1618,6 +1744,7 @@ if __name__ == '__main__':
         for epoch in range(2):
             trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
         torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
+
     trainer.PseudoLabeling(model, unlabeled_target)
     trainer.Selection(unlabeled_target)
     params = torch.cat([param.view(-1) for param in model.parameters()]).detach().cpu().numpy()
@@ -1685,4 +1812,5 @@ if __name__ == '__main__':
     ax = fig.add_subplot(111, projection='3d')
     ax.plot_surface(alpha, beta, loss_values, cmap='coolwarm', edgecolor='none')
     plt.savefig("loss_sharp.png")
+
 

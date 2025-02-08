@@ -760,7 +760,7 @@ if __name__ == '__main__':
                                         model_device = model_device,
                                         learningRate=5e-5,
                                         domain_num=7)
-#     model.load_model(f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS{fewShotCnt}.pkl")
+    model.load_model(f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS{fewShotCnt}.pkl")
     trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 3, learning_rate = 3e-6)
     
     trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 10,test_label=test_set.labelTensor())

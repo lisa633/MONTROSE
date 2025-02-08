@@ -1599,14 +1599,14 @@ if __name__ == '__main__':
         if source_domain.data[d_ID]['label'] == "rumours":
             source_pos.data[d_ID] = source_domain.data[d_ID]
             rumor_count += 1
-            if rumor_count >= 500:
+            if rumor_count >= 200:
                 break
                 
     for i,d_ID in enumerate(source_domain.data_ID):
         if source_domain.data[d_ID]['label'] != "rumours":
             source_neg.data[d_ID] = source_domain.data[d_ID]
             non_rumor_count += 1
-            if non_rumor_count >= 500:
+            if non_rumor_count >= 200:
                 break
     source_pos.dataclear()
     source_neg.dataclear()
@@ -1627,14 +1627,14 @@ if __name__ == '__main__':
         if label_data[d_ID] != "non-rumor":
             target_pos.data[d_ID] = unlabeled_target.data[d_ID]
             rumor_count += 1
-            if rumor_count >= 500:
+            if rumor_count >= 200:
                 break
                 
     for i,d_ID in enumerate(unlabeled_target.data_ID):
          if label_data[d_ID] == "non-rumor":
             target_neg.data[d_ID] = unlabeled_target.data[d_ID]
             non_rumor_count += 1
-            if non_rumor_count >= 500:
+            if non_rumor_count >= 200:
                 break
     target_pos.dataclear()
     target_neg.dataclear()
@@ -1671,16 +1671,16 @@ if __name__ == '__main__':
         
     
  
-    tsne = TSNE(n_components=2,random_state=100,perplexity =100,n_iter=1000)
+    tsne = TSNE(n_components=2,random_state=40,perplexity =100,n_iter=1000)
     all_feuture_tsne_0 = tsne.fit_transform(vec_list[0])
     plt.figure(figsize=(8, 6))
-    plt.scatter(all_feuture_tsne_0[:, 0], all_feuture_tsne_0[:, 1],c='#FF9999') #red
+    plt.scatter(all_feuture_tsne_0[:, 0], all_feuture_tsne_0[:, 1],c='#FF9999',marker='x') #red
     
     all_feuture_tsne_1 = tsne.fit_transform(vec_list[1])
     plt.scatter(all_feuture_tsne_1[:, 0], all_feuture_tsne_1[:, 1],c='#99CCFF') #blue
     
     all_feuture_tsne_2 = tsne.fit_transform(vec_list[2])
-    plt.scatter(all_feuture_tsne_2[:, 0], all_feuture_tsne_2[:, 1],c='#FFD700') #yellow
+    plt.scatter(all_feuture_tsne_2[:, 0], all_feuture_tsne_2[:, 1],c='#FFD700',marker='x') #yellow
     
     all_feuture_tsne_3 = tsne.fit_transform(vec_list[3])
     plt.scatter(all_feuture_tsne_3[:, 0], all_feuture_tsne_3[:, 1],c='#B3E0BF') #green

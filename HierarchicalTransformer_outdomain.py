@@ -1469,8 +1469,8 @@ class DgMSTF_Trainer(MetaLearningFramework):
                                         source_ratio=self.train_mix_ratio,
                                         reshuffle=True):
 
-                if step%self.alternate_gap == 0:
-                    self.domainAdverPerturb(model, source_domain, pseudo_target)
+#                 if step%self.alternate_gap == 0:
+#                     self.domainAdverPerturb(model, source_domain, pseudo_target)
                 loss, acc = model.lossAndAcc(batch)
                 losses = model.get_CrossEntropyLoss(batch)
                 model_optim.zero_grad()
@@ -1561,7 +1561,7 @@ if __name__ == '__main__':
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege','twitter15','twitter16']
     # for domain_ID in range(5):
-    domain_ID = 6 #选择目标域，与event_list对应,只需要测5和6
+    domain_ID = 5 #选择目标域，与event_list对应,只需要测5和6
     fewShotCnt = 100
     source_events = []
     target_events = []
@@ -1663,9 +1663,9 @@ if __name__ == '__main__':
         )
     else:
         for epoch in range(2):
-            trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
+            trainer.optimizeDiscriminator(model, source_domain, new_unlabeled_target, max_step=500)
         torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
-    trainer.Training(model, source_domain, unlabeled_target, test_set, dev_eval, te_eval, max_iterate=100) 
+    trainer.Training(model, source_domain, new_unlabeled_target, test_set, dev_eval, te_eval, max_iterate=100) 
     
 #     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
 #         model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")

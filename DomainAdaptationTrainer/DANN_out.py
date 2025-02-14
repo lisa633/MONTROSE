@@ -596,7 +596,7 @@ class DANNTrainer(BaseTrainer):
                 if (step + 1) % validEvery == 0:
                     acc_v = self.valid(trModel, validSet, validSet.labelTensor(),True, suffix=f"Valid_{self.suffix}")
                     if acc_v > self.best_valid_acc:
-                        torch.save(trModel.state_dict(), self.model_file)
+                        trModel.save_model(self.model_file)
                         self.best_valid_acc = acc_v
                         test_acc=self.valid(
                             trModel, testSet, testSet.labelTensor() if test_label is None else test_label,True,
@@ -722,7 +722,7 @@ if __name__ == '__main__':
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege','twitter15','twitter16']
     # for domain_ID in range(5):
-    domain_ID = 5
+    domain_ID = 6
     fewShotCnt = 100
     source_events = []
     target_events = []
@@ -760,10 +760,10 @@ if __name__ == '__main__':
                                         model_device = model_device,
                                         learningRate=5e-5,
                                         domain_num=7)
-    model.load_model(f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS{fewShotCnt}.pkl")
+#     model.load_model(f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS{fewShotCnt}.pkl")
     trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 3, learning_rate = 3e-6)
     
-    trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 10,test_label=test_set.labelTensor())
+    trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 1,validEvery = 50,test_label=test_set.labelTensor())
 
 #     if os.path.exists(f"../../autodl-tmp/pkl/DANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):
 #         model.load_model(f"../../autodl-tmp/pkl/DANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl")

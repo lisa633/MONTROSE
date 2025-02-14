@@ -512,7 +512,8 @@ class DANNTrainer(BaseTrainer):
                 if (step + 1) % validEvery == 0:
                     acc_v = self.valid(trModel, validSet, validSet.labelTensor(),True, suffix=f"Valid_{self.suffix}")
                     if acc_v > self.best_valid_acc:
-                        torch.save(trModel.state_dict(), self.model_file)
+                        print("save model!",self.model_file)
+                        trModel.save_model(self.model_file)
                         self.best_valid_acc = acc_v
                         test_acc=self.valid(
                             trModel, testSet, testSet.labelTensor() if test_label is None else test_label,True,
@@ -674,7 +675,7 @@ if __name__ == '__main__':
     model = obtain_Transformer(bertPath)
     source_domain.initGraph()
     
-    trainer = DANNTrainer(random_seed = 10086, log_dir = logDir, suffix = f"{test_event_name}_FS{fewShotCnt}", model_file = f"../../../autodl-tmp/pkl/DANN_{test_event_name}_FS{fewShotCnt}.pkl", class_num = 2, temperature=0.05,
+    trainer = DANNTrainer(random_seed = 10086, log_dir = logDir, suffix = f"{test_event_name}_FS{fewShotCnt}", model_file = f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS{fewShotCnt}.pkl", class_num = 2, temperature=0.05,
                  learning_rate=3e-6, batch_size=32, Lambda=0.1)
     
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
@@ -683,9 +684,9 @@ if __name__ == '__main__':
                                         model_device = model_device,
                                         learningRate=5e-5,
                                         domain_num=5)
-    trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 3, learning_rate = 3e-6)
+    trainer.PreTrainDomainClassifier(model,discriminator,source_domain,labeled_target,unlabeled_target,maxEpoch = 2, learning_rate = 3e-6)
     
-    trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 3,validEvery = 10,test_label=test_set.labelTensor())
+    trainer.ModelTrain(model,discriminator,source_domain,labeled_target,unlabeled_target,val_set,test_set,maxEpoch = 1,validEvery = 50,test_label=test_set.labelTensor())
     
 
     

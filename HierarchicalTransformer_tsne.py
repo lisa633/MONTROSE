@@ -1494,7 +1494,7 @@ if __name__ == '__main__':
     data_dir2 = r"../../autodl-tmp/data/pheme-rnr-dataset/qwen_gen_from_source/" + test_event_name
     #train_set, labeled_target, val_set, test_set, unlabeled_target
     source_domain, labeled_target, val_set, test_set, unlabeled_target = load_data(
-        source_events, target_events, fewShotCnt, unlabeled_ratio=0.3
+        source_events, target_events, fewShotCnt, unlabeled_ratio=0
     )
     
     source_pos = MetaMCMCDataset()
@@ -1509,14 +1509,14 @@ if __name__ == '__main__':
         if source_domain.data[d_ID]['label'] == "rumours":
             source_pos.data[d_ID] = source_domain.data[d_ID]
             rumor_count += 1
-            if rumor_count >= 200:
+            if rumor_count >= 180:
                 break
                 
     for i,d_ID in enumerate(source_domain.data_ID):
         if source_domain.data[d_ID]['label'] != "rumours":
             source_neg.data[d_ID] = source_domain.data[d_ID]
             non_rumor_count += 1
-            if non_rumor_count >= 200:
+            if non_rumor_count >= 180:
                 break
     source_pos.dataclear()
     source_neg.dataclear()
@@ -1531,17 +1531,17 @@ if __name__ == '__main__':
     
     
     for i,d_ID in enumerate(unlabeled_target.data_ID):
-        if unlabeled_target.data["label"] == "rumours":
+        if unlabeled_target.data[d_ID]["label"] == "rumours":
             target_pos.data[d_ID] = unlabeled_target.data[d_ID]
             rumor_count += 1
-            if rumor_count >= 200:
+            if rumor_count >= 180:
                 break
                 
     for i,d_ID in enumerate(unlabeled_target.data_ID):
-        if unlabeled_target.data["label"] != "rumours":
+        if unlabeled_target.data[d_ID]["label"] != "rumours":
             target_neg.data[d_ID] = unlabeled_target.data[d_ID]
             non_rumor_count += 1
-            if non_rumor_count >= 200:
+            if non_rumor_count >= 180:
                 break
     target_pos.dataclear()
     target_neg.dataclear()
@@ -1558,10 +1558,10 @@ if __name__ == '__main__':
     bertPath = r"../../autodl-tmp/bert_en"
     model = obtain_Transformer(bertPath)
 
-    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS100.pkl"):
-        model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS100.pkl")
-    else:
-        print("no model!")    
+#     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS100.pkl"):
+#         model.load_model(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS100.pkl")
+#     else:
+#         print("no model!")    
 
 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
@@ -1570,7 +1570,7 @@ if __name__ == '__main__':
     print("here!")
         
     for i in range(len(new_data_list)):
-        for batch in DANN_Dataloader([new_data_list[i]], batch_size=200):
+        for batch in DANN_Dataloader([new_data_list[i]], batch_size=180):
             with torch.no_grad():
                 vecs = model.Batch2Vecs(batch).cpu().numpy()
         vec_list.append(vecs)
@@ -1579,7 +1579,7 @@ if __name__ == '__main__':
         
     
  
-    tsne = TSNE(n_components=2,random_state=40,perplexity =100,n_iter=1000)
+    tsne = TSNE(n_components=2,random_state=40,perplexity =30,n_iter=1000)
     all_feuture_tsne_0 = tsne.fit_transform(vec_list[0])
     plt.figure(figsize=(8, 6))
     plt.scatter(all_feuture_tsne_0[:, 0], all_feuture_tsne_0[:, 1],c='#FF9999',marker='x') #red
@@ -1594,7 +1594,7 @@ if __name__ == '__main__':
     plt.scatter(all_feuture_tsne_3[:, 0], all_feuture_tsne_3[:, 1],c='#B3E0BF') #green
 
     # 添加图例和标签
-    plt.title('t-SNE Visualization of Domain Adaptation', fontsize=14)
+#     plt.title('t-SNE Visualization of Domain Adaptation', fontsize=14)
 
     # 显示图形
-    plt.savefig("t-SNE.png")
+    plt.savefig("t-SNE_before.png")

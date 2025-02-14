@@ -1,6 +1,5 @@
 import sys
 sys.path.append('..')
-import copy
 import os, pickle, random, numpy as np
 from TrainingEnv import BaseTrainer, AdversarialModel, CustomDataset, GradientReversal
 import torch, torch.nn as nn, torch.nn.functional as F
@@ -12,11 +11,10 @@ from backpack import extend, extensions
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.manifold import TSNE
-import json
 
 from cockpit import Cockpit, CockpitPlotter, quantities
 from cockpit.utils import schedules
-from Data.BiGCN_Dataloader_out import BiGCNTwitterSet, FastBiGCNDataset, MetaMCMCDataset, load_data, load_data_twitter15
+from Data.BiGCN_Dataloader import BiGCNTwitterSet, FastBiGCNDataset, MetaMCMCDataset, load_data, load_data_twitter15
 from BaseModel.BiGCN_Utils.RumorDetectionBasic import BaseEvaluator
 from BaseModel.BiGCN_Utils.GraphRumorDect import BiGCNRumorDetecV2
 from BaseModel.modeling_bert import *
@@ -43,11 +41,13 @@ class TwitterTransformer(BiGCNRumorDetecV2):
         preds = F.softmax(logits / temperature, dim=1)
         epsilon = torch.ones_like(preds) * (1e-8)
         preds = (preds - epsilon).abs()
+#         print("domain preds:",preds)
 #         print("batch[-1]:",batch[-1])
         if labels is None:
             labels = batch[-1].to(preds.device)
         else:
             labels = labels.to(preds.device)
+#         print("domain labels:",labels)
         if labels.dim() == 2:
             loss, acc = self.expandCrossEntropy(preds, labels, label_weight, reduction)
         elif labels.dim() == 1:
@@ -85,9 +85,11 @@ class TwitterTransformer(BiGCNRumorDetecV2):
 
         preds = self.predict(batch, temperature=temperature)
         # 检查是否有可用的GPU
+#         print("preds:",preds)
         epsilon = torch.ones_like(preds) * 1e-8
         preds = (preds - epsilon).abs()  # to avoid the prediction [1.0, 0.0], which leads to the 'nan' value in log operation
         labels = batch[-2].to(preds.device)
+#         print("labels:",labels)
         loss, acc = self.loss_func(preds, labels, label_weight=label_weight, reduction=reduction)
         return loss, acc
     
@@ -110,7 +112,7 @@ class TwitterTransformer(BiGCNRumorDetecV2):
     
     def loss_func(self, preds: torch.Tensor, labels: torch.Tensor, label_weight=None, reduction='none'):
         # print("preds.shape",preds.shape)
-        # print("labels.shape", labels.shape)
+#         print("labels.dim", labels.dim())
         if labels.dim() == 3:
             loss, acc = self.expandCrossEntropy(preds, labels, label_weight, reduction)
         elif labels.dim() == 2:
@@ -123,69 +125,6 @@ class TwitterTransformer(BiGCNRumorDetecV2):
         else:
             raise Exception("weird label tensor!")
         return loss, acc
-    
-##########################################################################
-#mearsure sharpness
-
-def rand_unit(N):
-    random_vector = torch.randn(N)
-    random_unit_vector = random_vector / torch.norm(random_vector)
-    return random_unit_vector
-
-def add_flat_params_(flat_params, model):
-    offset = 0
-    for n, p in model.named_parameters():
-        size = p.numel()
-        ip = flat_params[offset:offset+size].view(p.shape)
-        with torch.no_grad():
-            p.add_(ip)
-        offset += size
-
-def accuracy_from_loader(model:TwitterTransformer,test_data:MetaMCMCDataset):
-    correct = 0
-    total = 0
-    losssum = 0.0
-
-    model.eval()
-    for batch in DANN_Dataloader([test_data],batch_size=32):
-        with torch.no_grad():
-            loss, acc = model.lossAndAcc(batch)
-        losssum += loss * len(batch)
-        correct += acc
-
-        batch_weights = torch.ones(len(batch))
-        total += batch_weights.sum().item()
-        
-    model.train()
-    
-    acc = correct / total
-    loss = losssum / total
-
-    return acc,loss
-    
-
-def eval_with_move(model:TwitterTransformer, direction, test_data, step_size=1., max_dist=50.):
-    # algo = copy.deepcopy(algorithm)
-    # make a unit vector
-    direction = direction / torch.norm(direction)
-    direction = direction.cuda()
-
-    loss_li = []
-    distance = 0.
-    original_model = copy.deepcopy(model)
-    while distance <= max_dist:
-        print("distance:",distance)
-        model.load_state_dict(original_model.state_dict())
-        acc, loss = accuracy_from_loader(model, test_data)
-        loss_li.append(loss.item())
-
-        distance += step_size
-        add_flat_params_(direction*step_size, model)
-    print(loss_li)
-
-    return loss_li
-
-#########################################################################
 
 def obtain_Transformer(bertPath, device=None):
     if device is None:
@@ -357,22 +296,6 @@ class SentBert(nn.Module):
 
     def load_model(self, pretrained_file):
         self.model.module.load_state_dict(torch.load(pretrained_file))
-        
-@background(max_prefetch=5)
-def DANN_Dataloader(dataset:MetaMCMCDataset, batch_size=32):
-
-
-    indexs_souce = [random.sample(range(len(domain)), len(domain)) for domain in dataset]
-    
-    
-    bs_domain = batch_size//(len(dataset))#16 在两个领域上平均分配batch
-    max_iters = max([len(domain)//bs_domain for domain in dataset])#max_iters = 371
-    for iteration in range(max_iters):
-        start = iteration*bs_domain
-        items = [domain[indexs_souce[d_idx][idx%len(domain)]] \
-                    for d_idx, domain in enumerate(dataset) \
-                        for idx in range(start, start+bs_domain)]
-        yield dataset[0].collate_fn(items)
 
 
 def Generator1(labeledSource, unlabeledTarget, labeledTarget, batchSize):
@@ -525,6 +448,7 @@ class DANNTrainer(BaseTrainer):
         return tfidf_arr, num_nodes, A_TD, A_BU, \
             torch.tensor(labels), torch.tensor(topic_labels)
 
+
     def PreTrainDomainClassifier(self, trModel: nn.Module, discriminator: nn.Module,
                                  labeledSource: CustomDataset, labeledTarget: CustomDataset,
                                  unlabeledTarget: CustomDataset, maxEpoch, learning_rate=5e-3):
@@ -538,13 +462,14 @@ class DANNTrainer(BaseTrainer):
         for epoch in range(maxEpoch):
             maxIters, trainLoader = DataIter(labeledSource, unlabeledTarget, labeledTarget, self.batch_size)
             for step, (_, batch2) in enumerate(trainLoader()):
-#                 print("batch2[-1]",batch2[-1])
+#                 print("labels",batch2[-1])
                 with torch.no_grad():
                     vecs = trModel.Batch2Vecs(batch2)
                 logits = discriminator(vecs)
                 DLoss = F.cross_entropy(logits, batch2[-1])
                 probs = discriminator(vecs).softmax(dim=1) #此处的概率是判断属于哪个域
                 predicted_labels = probs.argmax(dim=1)
+#                 print("predicted_labels:",predicted_labels)
                 DAcc = (predicted_labels == batch2[-1]).float().mean().item()
 #                 DLoss, DAcc = trModel.discriminatorLoss(discriminator, batch2, grad_reverse=False)
                 optim.zero_grad()
@@ -572,21 +497,11 @@ class DANNTrainer(BaseTrainer):
                 [{"params": discriminator.parameters(), "lr": self.learning_rate}]
         optim = torch.optim.Adam(paras, lr=self.learning_rate)
         best_test_acc=0
-        domain_train_losses = []
-        task_train_losses = []
         for epoch in range(maxEpoch):
-            domain_train_loss = 0
-            task_train_loss = 0
-            count = 0
             maxIters, trainLoader = DataIter(labeledSource, unlabeledTarget, labeledTarget, self.batch_size)
             for step, (batch1, batch2) in enumerate(trainLoader()):
-                count += 1
                 loss, acc = trModel.lossAndAcc(batch1)
                 DLoss, DAcc = trModel.AdvDLossAndAcc(discriminator, batch2)
-                domain_train_loss += DLoss.item()
-                print("domain_train_loss:",domain_train_loss)
-                task_train_loss += loss.item()
-                print("task_train_loss:",task_train_loss)
                 trainLoss = loss + self.Lambda * DLoss
                 optim.zero_grad()
                 trainLoss.backward()
@@ -617,12 +532,6 @@ class DANNTrainer(BaseTrainer):
                         if test_acc>best_test_acc:
                             best_test_acc=test_acc
                             print("best_test_acc_un",best_test_acc)
-                            
-                domain_train_losses.append(domain_train_loss/count)
-                task_train_losses.append(task_train_loss/count)
-                
-        print("domain_loss:",domain_train_losses)
-        print("task_loss:",task_train_losses)
 
     def ModelTrainV2(self, trModel: AdversarialModel, discriminator: nn.Module,
                      labeledSource: CustomDataset, labeledTarget: CustomDataset,
@@ -641,7 +550,7 @@ class DANNTrainer(BaseTrainer):
             for step, (batch1, batch2) in enumerate(trainLoader()):
                 optim.zero_grad()
                 for da_idx in range(D_Step):
-                    DLoss, DAcc = trModel.advLossAndAcc(discriminator, batch2)
+                    DLoss, DAcc = trModel.AdvDLossAndAcc(discriminator, batch2)
                     optim.zero_grad()
                     (self.Lambda * DLoss).backward()
                     optim.step()
@@ -669,81 +578,93 @@ class DANNTrainer(BaseTrainer):
                         self.valid(trModel, testSet, testSet.labelTensor(), suffix=f"Test_{self.suffix}")
     
 
-    def PateroPrint(self, model:TwitterTransformer, testset:MetaMCMCDataset):
-        domain_acc_li = []
-        task_acc_li = []
-        for batch in DANN_Dataloader([testset], batch_size=20):
-            vecs = model.Batch2Vecs(batch)
-            probs = discriminator(vecs).softmax(dim=1)
-            predicted_labels = probs.argmax(dim=1)
-            domain_acc = (predicted_labels == batch[-1]).float().mean().item()
-            domain_acc_li.append(domain_acc)
-            _, acc = model.lossAndAcc(batch)
-            task_acc_li.append(acc)
+class GpDANNTrainer(DANNTrainer):
+    def GpDaNNTrain(self, trModel: AdversarialModel, discriminator: nn.Module, labeledSource: CustomDataset,
+                    unlabeledTarget: CustomDataset, maxEpoch,learning_rate=2e-5):
+        assert hasattr(trModel, "AdvDLossAndAcc")
+        paras = trModel.grouped_parameters(learning_rate) + \
+                [{"params": discriminator.parameters(), "lr": learning_rate}]
+        base_optimizer = torch.optim.SGD
+        optim = SAM(paras, base_optimizer, lr=learning_rate, momentum=0.9)
 
-        print("domain_acc:",domain_acc_li)
-        print("task_acc:",task_acc_li)
-        
-    def evaluateSmoothness(self,model:TwitterTransformer, test_data:MetaMCMCDataset, step_size=3., max_dist=30., n_repeat=100):
-        n_params = sum([
-            param.numel()
-            for name, param in model.named_parameters()
-        ])
-            
-        results = []
-        _,original_loss = accuracy_from_loader(model, test_data)
-        org_model = copy.deepcopy(model)
-        for i in range(n_repeat):
-            print(i)
-            direction = rand_unit(n_params)
-            res = eval_with_move(
-                model, direction, test_data, step_size=step_size, max_dist=max_dist,
-            )
-            results.append(res)
+        for epoch in range(maxEpoch):
+            maxIters, trainLoader = Generator3(labeledSource, unlabeledTarget, self.batch_size)
+            for step, batch in enumerate(trainLoader()):
+                loss, acc = trModel.AdvDLossAndAcc(discriminator, batch)
+                loss.backward()
+                optim.first_step(zero_grad=True)
+                loss, acc = trModel.AdvDLossAndAcc(discriminator, batch)
+                loss.backward()
+                optim.second_step(zero_grad=True)
+                print('####Model Update (%3d | %3d) %3d | %3d #### DLoss/DAcc = %6.8f/%6.8f' % (
+                    step, maxIters, epoch, maxEpoch, loss.data.item(), acc
+                ))
+            torch.save(trModel.state_dict(), self.model_file[:-4]+"_GpDaNNTrain.pkl")
+    def TaskTrain(self, trModel: AdversarialModel, labeledSource: CustomDataset, labeledTarget: CustomDataset,
+                  validSet: CustomDataset, testSet: CustomDataset, maxEpoch,learning_rate=2e-5, validEvery=20, test_label=None):
+        print("labeled Source/labeled Target: {}/{}".format(
+            len(labeledSource),
+            len(labeledTarget) if labeledTarget is not None else 0,
+        )
+        )
+        optim = trModel.obtain_optim(learning_rate)
 
-#             for op, p in zip(org_model.parameters(), model.parameters()):
-#                 if not torch.allclose(op, p):
-#                     raise ValueError("Sanity check failed")
-        total_diff = 0
-        count = 0
-        for result in results:
-            for pert_loss in result:
-                diff = abs(pert_loss - original_loss)
-                total_diff += diff
-                count += 1
-                
-        expect_loss_diff = total_diff / count
+        for epoch in range(maxEpoch):
+            maxIters, trainLoader = Generator3(labeledSource, labeledTarget, self.batch_size)
+            for step, (batch1) in enumerate(trainLoader()):
+                loss, acc = trModel.lossAndAcc(batch1, temperature=self.temperature)
+                optim.zero_grad()
+                loss.backward()
+                optim.step()
+                torch.cuda.empty_cache()
+                print('####Model Update (%3d | %3d) %3d | %3d ####, loss/acc = %6.8f/%6.8f' % (
+                    step, maxIters, epoch, maxEpoch, loss.data.item(), acc
+                ))
+                if (step + 1) % validEvery == 0:
+                    acc_v = self.valid(trModel, validSet, validSet.labelTensor(), suffix=f"Valid_{self.suffix}")
+                    if acc_v > self.best_valid_acc:
+                        torch.save(trModel.state_dict(), self.model_file)
+                        self.best_valid_acc = acc_v
+                        self.valid(
+                            trModel, testSet, testSet.labelTensor() if test_label is None else test_label,
+                            suffix=f"BestTest_{self.suffix}"
+                        )
+                    else:
+                        self.valid(
+                            trModel, testSet, testSet.labelTensor() if test_label is None else test_label,
+                            suffix=f"Test_{self.suffix}"
+                        )
 
-        # save
-        print("average_loss_diff:",expect_loss_diff)
+    def ModelTrain(self, trModel: AdversarialModel, discriminator: nn.Module,
+                   labeledSource: CustomDataset, labeledTarget: CustomDataset,
+                   unlabeledTarget: CustomDataset, validSet: CustomDataset,
+                   testSet: CustomDataset, maxEpoch, validEvery=20, test_label=None):
+        print("labeled Source/labeled Target/unlabeled Target: {}/{}/{}".format(len(labeledSource),
+                                                                                len(labeledTarget) if labeledTarget is not None else 0,
+                                                                                len(unlabeledTarget)))
 
+        # self.GpDaNNTrain(trModel, discriminator, labeledSource, unlabeledTarget, maxEpoch=10, learning_rate=5e-5)
+        # self.TaskTrain(trModel, labeledSource, labeledTarget, validSet, testSet, maxEpoch=10, learning_rate=2e-3,
+        #                validEvery=validEvery)
+        for alternate in range(maxEpoch):
+            self.GpDaNNTrain(trModel, discriminator, labeledSource, unlabeledTarget, maxEpoch=3, learning_rate=2e-5)
+            self.TaskTrain(trModel, labeledSource, labeledTarget, validSet, testSet, maxEpoch=3, learning_rate=2e-5,
+                           validEvery=validEvery, test_label=None)
 
             
 if __name__ == '__main__':
-    data_dir1 = r"../../autodl-tmp/data/pheme-rnr-dataset/"
-    data_dir2 = r"../../autodl-tmp/data/t1516/"
-    os.environ['CUDA_VISIBLE_DEVICES'] = "0,1" 
+    data_dir1 = r"../../../autodl-tmp/data/pheme-rnr-dataset/"
+    # os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
 
-    events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege','twitter15','twitter16']
+    events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege']
     # for domain_ID in range(5):
-    domain_ID = 5 #选择目标域，与event_list对应,只需要测5和6
+    domain_ID = 1
     fewShotCnt = 100
-    source_events = []
-    target_events = []
-    for idx,dname in enumerate(events_list):
-        if idx != domain_ID:
-            if dname == "twitter15" or dname == "twitter16":
-                source_events.append(os.path.join(data_dir2, dname))
-            else:
-                source_events.append(os.path.join(data_dir1, dname))
-#                 source_events= [os.path.join(data_dir1, dname)]
-    for idx, dname in enumerate(events_list):
-        if idx == domain_ID:
-            if dname=="twitter15" or dname=="twitter16":
-                target_events.append(os.path.join(data_dir2, dname))
-            else:
-                target_events.append(os.path.join(data_dir1, dname))
-    
+    source_events = [os.path.join(data_dir1, dname)
+                     for idx, dname in enumerate(events_list) if idx != domain_ID]
+    # source_events = [os.path.join(data_dir1, dname)
+    #                  for idx, dname in enumerate(events_list)]
+    target_events = [os.path.join(data_dir1, events_list[domain_ID])]
     test_event_name = events_list[domain_ID]
     #train_set, labeled_target, val_set, test_set, unlabeled_target
     source_domain, labeled_target, val_set, test_set, unlabeled_target = load_data(
@@ -781,19 +702,16 @@ if __name__ == '__main__':
     rumor_count = 0
     non_rumor_count = 0
     
-    label_file = f"./label_15.json"
-    label_data = json.load(open(label_file, mode="r", encoding="utf-8"))
     
     for i,d_ID in enumerate(unlabeled_target.data_ID):
-        
-        if label_data[d_ID] != "non-rumor":
+        if unlabeled_target.data[d_ID]["label"] == "rumours":
             target_pos.data[d_ID] = unlabeled_target.data[d_ID]
             rumor_count += 1
             if rumor_count >= 200:
                 break
                 
     for i,d_ID in enumerate(unlabeled_target.data_ID):
-         if label_data[d_ID] == "non-rumor":
+        if unlabeled_target.data[d_ID]["label"] != "rumours":
             target_neg.data[d_ID] = unlabeled_target.data[d_ID]
             non_rumor_count += 1
             if non_rumor_count >= 200:
@@ -805,12 +723,14 @@ if __name__ == '__main__':
     new_data_list.append(source_neg)
     new_data_list.append(target_pos)
     new_data_list.append(target_neg)
+
+    
+    logDir = f"../../../autodl-tmp/log/DANN/{test_event_name}/"
     
     bertPath = r"../../../autodl-tmp/bert_en"
     model = obtain_Transformer(bertPath)
-
-    if os.path.exists(f"../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS100.pkl"):
-        model.load_model(f"../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS100.pkl")
+    if os.path.exists(f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS100.pkl"):
+        model.load_model(f"../../../autodl-tmp/pkl/DANN/DANN_{test_event_name}_FS100.pkl")
     else:
         print("no model!")    
 
@@ -848,8 +768,6 @@ if __name__ == '__main__':
     plt.title('t-SNE Visualization of Domain Adaptation', fontsize=14)
 
     # 显示图形
-    plt.savefig("t-SNE.png")
-
-
+    plt.savefig("t-SNE_1.png")
     
     

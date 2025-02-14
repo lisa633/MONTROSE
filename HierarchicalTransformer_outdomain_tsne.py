@@ -1564,7 +1564,7 @@ if __name__ == '__main__':
 
     events_list = ['charliehebdo', 'ferguson', 'germanwings-crash', 'ottawashooting','sydneysiege','twitter15','twitter16']
     # for domain_ID in range(5):
-    domain_ID = 5 #选择目标域，与event_list对应,只需要测5和6
+    domain_ID = 6 #选择目标域，与event_list对应,只需要测5和6
     fewShotCnt = 100
     source_events = []
     target_events = []
@@ -1599,14 +1599,14 @@ if __name__ == '__main__':
         if source_domain.data[d_ID]['label'] == "rumours":
             source_pos.data[d_ID] = source_domain.data[d_ID]
             rumor_count += 1
-            if rumor_count >= 200:
+            if rumor_count >= 100:
                 break
                 
     for i,d_ID in enumerate(source_domain.data_ID):
         if source_domain.data[d_ID]['label'] != "rumours":
             source_neg.data[d_ID] = source_domain.data[d_ID]
             non_rumor_count += 1
-            if non_rumor_count >= 200:
+            if non_rumor_count >= 100:
                 break
     source_pos.dataclear()
     source_neg.dataclear()
@@ -1619,7 +1619,7 @@ if __name__ == '__main__':
     rumor_count = 0
     non_rumor_count = 0
     
-    label_file = f"./label_15.json"
+    label_file = f"./label_16.json"
     label_data = json.load(open(label_file, mode="r", encoding="utf-8"))
     
     for i,d_ID in enumerate(unlabeled_target.data_ID):
@@ -1627,14 +1627,14 @@ if __name__ == '__main__':
         if label_data[d_ID] != "non-rumor":
             target_pos.data[d_ID] = unlabeled_target.data[d_ID]
             rumor_count += 1
-            if rumor_count >= 200:
+            if rumor_count >= 100:
                 break
                 
     for i,d_ID in enumerate(unlabeled_target.data_ID):
          if label_data[d_ID] == "non-rumor":
             target_neg.data[d_ID] = unlabeled_target.data[d_ID]
             non_rumor_count += 1
-            if non_rumor_count >= 200:
+            if non_rumor_count >= 100:
                 break
     target_pos.dataclear()
     target_neg.dataclear()
@@ -1662,7 +1662,7 @@ if __name__ == '__main__':
     print("here!")
         
     for i in range(len(new_data_list)):
-        for batch in DANN_Dataloader([new_data_list[i]], batch_size=200):
+        for batch in DANN_Dataloader([new_data_list[i]], batch_size=100):
             with torch.no_grad():
                 vecs = model.Batch2Vecs(batch).cpu().numpy()
         vec_list.append(vecs)
@@ -1671,7 +1671,7 @@ if __name__ == '__main__':
         
     
  
-    tsne = TSNE(n_components=2,random_state=40,perplexity =100,n_iter=1000)
+    tsne = TSNE(n_components=2,random_state=40,perplexity =50,n_iter=1000)
     all_feuture_tsne_0 = tsne.fit_transform(vec_list[0])
     plt.figure(figsize=(8, 6))
     plt.scatter(all_feuture_tsne_0[:, 0], all_feuture_tsne_0[:, 1],c='#FF9999',marker='x') #red
@@ -1689,4 +1689,4 @@ if __name__ == '__main__':
     plt.title('t-SNE Visualization of Domain Adaptation', fontsize=14)
 
     # 显示图形
-    plt.savefig("t-SNE.png")
+    plt.savefig("t-SNE_16.png")

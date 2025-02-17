@@ -1409,8 +1409,8 @@ class DgMSTF_Trainer(MetaLearningFramework):
                                         source_ratio=self.train_mix_ratio,
                                         reshuffle=True):
 
-#                 if step%self.alternate_gap == 0:
-#                     self.domainAdverPerturb(model, source_domain, pseudo_target)
+                if step%self.alternate_gap == 0:
+                    self.domainAdverPerturb(model, source_domain, pseudo_target)
                 loss, acc = model.lossAndAcc(batch)
                 losses = model.get_CrossEntropyLoss(batch)
                 model_optim.zero_grad()

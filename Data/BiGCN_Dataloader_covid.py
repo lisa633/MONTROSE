@@ -537,13 +537,37 @@ class Covid19(MetaMCMCDataset):
         self.instance_weights = torch.ones([len(self.data_len)], dtype=torch.float32, device=torch.device('cuda:0'))
         self._confidence, self._entrophy = None, None
         self.read_indexs:np.array = None
+        
+    def sort_by_timeline(self, key, temp_idxs):
+        self.data[key]['text'] = [self.data[key]['text'][idx] for idx in temp_idxs]
+        self.data[key]['created_at'] = [self.data[key]['created_at'][idx] for idx in temp_idxs]
+        self.data[key]['edges'] = [self.data[key]['edges'][idx] for idx in temp_idxs]
+
+    def dataclear(self, post_fn=1):
+        print("data clear:")
+        # for key, value in tqdm(self.data.items()):
+        #     temp_idxs = np.array(self.data[key]['created_at']).argsort().tolist()
+        #     self.sort_by_timeline(key, temp_idxs)
+        #     self.gather_posts(key, temp_idxs, post_fn)
+
+        # for key in self.data.keys():
+        #     self.data_ID.append(key)
+        self.data_ID = random.sample(self.data_ID, len(self.data_ID))  # shuffle the data id
+        self._confidence = torch.ones(len(self.data_ID),device=torch.device('cuda'))
+        self._entrophy = torch.zeros(len(self.data_ID),device=torch.device('cuda'))
+        self.read_indexs = np.arange(len(self.data_ID))
+#         print(self.read_indexs)
+        self.instance_weights = torch.ones([len(self.data_ID)], dtype=torch.float32,device=torch.device('cuda')) 
+        self.data_len = []
+        for ID in self.data_ID:
+            self.data_len.append(len(self.data[ID]['text']))
 
     def load_data(self, data_dir):
         with open(f"{data_dir}/Twitter_label_all.txt") as fr:
             lines = [line.strip('\n') for line in fr]
         items = [line.split('\t') for line in lines]
         self.data_ID = [item[0] for item in items]
-        self.data_y = [[0, 1] if item[1] == '1' else [1, 0] for item in items]
+        self.data_y = [[0.0, 1.0] if item[1] == '1' else [1.0, 0.0] for item in items]
 
         self.data = {
             ID: {
@@ -555,6 +579,10 @@ class Covid19(MetaMCMCDataset):
 
         error_IDs = []
         with open(f"{data_dir}/Twitter_data_all.txt") as fr:
+            if data_dir.split("/")[-1] == "Twitter":
+                topic_label = 0
+            else:
+                topic_label = 1
             for line in tqdm(fr):
                 s = line.strip('\n').split('\t')
                 if not s[0] in self.data:
@@ -563,30 +591,15 @@ class Covid19(MetaMCMCDataset):
                         print(f" WARNING : ID '{s[0]}' does not exists in the label file")
                         print(f"The count of the error ID is {len(error_IDs)}")
                     continue
+                self.data[s[0]]['topic_label'] = topic_label
                 self.data[s[0]]['text'].append(s[4].split(' '))
                 self.data[s[0]]['created_at'].append(float(s[3]))
                 if s[1] != 'None':
                     self.data[s[0]]['edges'].append([int(s[1]) - 1, int(s[2]) - 1])
 
-        self.data_len = []
-        for ID in self.data_ID:
-            self.data_len.append(len(self.data[ID]['text']))
+        self.dataclear()
 
-    def dataclear(self, post_fn=1):
-        print("data clear:")
-        for key, value in tqdm(self.data.items()):
-            temp_idxs = np.array(self.data[key]['created_at']).argsort().tolist()
-            self.sort_by_timeline(key, temp_idxs)
-            self.gather_posts(key, temp_idxs, post_fn)
 
-        for key in self.data.keys():
-            self.data_ID.append(key)
-        self.data_ID = random.sample(self.data_ID, len(self.data_ID))  # shuffle the data id
-        self._confidence = torch.ones(len(self.data_ID),device=torch.device('cuda'))
-        self._entrophy = torch.zeros(len(self.data_ID),device=torch.device('cuda'))
-        self.read_indexs = np.arange(len(self.data_ID))
-#         print(self.read_indexs)
-        self.instance_weights = torch.ones([len(self.data_ID)], dtype=torch.float32,device=torch.device('cuda')) 
 
     def split(self, percent=[0.5, 1.0]):
         data_size = len(self.data_ID)
@@ -594,7 +607,7 @@ class Covid19(MetaMCMCDataset):
         start_end.insert(0, 0)
         new_idxs = list(random.sample(list(range(data_size)), data_size))
 
-#         print("new_idxs", new_idxs)
+        # print("new_idxs", new_idxs)
 #         print("new_idxs_len", len(new_idxs))
 
         rst = [self.__class__() for _ in percent]
@@ -634,16 +647,30 @@ class Covid19(MetaMCMCDataset):
         self._confidence = torch.ones(len(self.data_ID),device=torch.device('cuda'))
         self._entrophy = torch.zeros(len(self.data_ID),device=torch.device('cuda'))
         self.read_indexs = np.arange(len(self.data_ID))
+        
 
     def construct_graph(self, index, d_ID):
+
         edges = self.data[d_ID]['edges']
         src = np.array([item[0] for item in edges])
-        print("src:",src)
         dst = np.array([item[1] for item in edges])
-        print("dst:",dst)
         g_TD = dgl.graph((dst, src), num_nodes=self.data_len[index])
         g_BU = dgl.graph((src, dst), num_nodes=self.data_len[index])
         return g_TD, g_BU
+
+    def initGraph(self):
+        if not hasattr(self, "g_TD"):
+            self.g_TD = {}
+        if not hasattr(self, "g_BU"):
+            self.g_BU = {}
+
+        for index, d_ID in tqdm(enumerate(self.data_ID)):
+            if d_ID in self.g_TD and d_ID in self.g_BU:
+                pass
+            else:
+                g_TD, g_BU = self.construct_graph(index, d_ID)
+                self.g_TD[d_ID] = g_TD
+                self.g_BU[d_ID] = g_BU
 
     def __getitem__(self, index):
         d_ID = self.data_ID[index]

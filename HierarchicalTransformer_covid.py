@@ -62,7 +62,7 @@ class SentBert(nn.Module):
         # self.model = BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda'))
         self.model = nn.DataParallel(
             BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda')),
-            device_ids=[0],
+            device_ids=[0,1,2,3]
             #device_ids = [0]
         )
 
@@ -1294,7 +1294,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
     domain_discriminator:nn.Module=None
     labeled_target:MetaMCMCDataset = None
     class_num = 2
-    domain_num = 7
+    domain_num = 2
 
     ### General Training Parameters ###
     lr4model=5e-5 # learning rate for updating the model's parameters
@@ -1557,7 +1557,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
 if __name__ == '__main__':
     data_dir1 = r"../../autodl-tmp/data/Twitter"
     data_dir2 = r"../../autodl-tmp/data/Covid19"
-    os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
+    # os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2,3" 
 
     events_list = ['twitter', 'covid19']
     # for domain_ID in range(5):
@@ -1629,7 +1629,7 @@ if __name__ == '__main__':
     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):
         model.load_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")
     else:
-        trainer.fit(model, source_domain, dev_eval, te_eval, batch_size=32, grad_accum_cnt=1, learning_rate=5e-6,
+        trainer.fit(model, source_domain, dev_eval, te_eval, batch_size=20, grad_accum_cnt=1, learning_rate=5e-6,
                 max_epochs=25,
                 model_file=os.path.join(logDir, f'BiGCN_{test_event_name}.pkl'))
         if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):
@@ -1637,13 +1637,13 @@ if __name__ == '__main__':
         else:
             model.save_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")    
 
-    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=7,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=32, epsilon_ball=8e-7,gStep=5, Lambda=0.1, G_lr = 8e-7, D_lr=2e-4, valid_every=10, dStep=10) 
+    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=2,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=32, epsilon_ball=8e-7,gStep=5, Lambda=0.1, G_lr = 8e-7, D_lr=2e-4, valid_every=10, dStep=10) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
                                         model_device = model_device,
                                         learningRate=2e-5,
-                                        domain_num=7)
+                                        domain_num=2)
     trainer.domain_discriminator = discriminator
     print("being domain discriminate!")
     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl"):

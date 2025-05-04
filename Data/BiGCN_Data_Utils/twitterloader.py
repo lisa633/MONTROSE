@@ -259,6 +259,9 @@ class TwitterLoader(RumorLoader):
             else:
                 self.data[key] = twitter_dict[key]
 
+
+        
+
     def read_json_files(self, files):
         for twitter_dict in twitter_data_process(files):
             self.fetch(twitter_dict)
@@ -338,6 +341,10 @@ class TwitterLoader(RumorLoader):
             self.scan_dir(event_path)
 
         self.read_json_files(self.files)
+        self.dataclear()
+
+    def load_data_new(self, data_path = "../pheme-rnr-dataset/"):
+        self.read_txt_files(self.files)
         self.dataclear()
 
 class Covid19Loader(RumorLoader):

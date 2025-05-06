@@ -62,7 +62,7 @@ class SentBert(nn.Module):
         # self.model = BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda'))
         self.model = nn.DataParallel(
             BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda')),
-            device_ids=[0,1,2,3]
+            device_ids=[0,1,2,3,4,5,6,7]
             #device_ids = [0]
         )
 
@@ -1629,7 +1629,7 @@ if __name__ == '__main__':
     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):
         model.load_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")
     else:
-        trainer.fit(model, source_domain, dev_eval, te_eval, batch_size=20, grad_accum_cnt=1, learning_rate=5e-6,
+        trainer.fit(model, source_domain, dev_eval, te_eval, batch_size=32, grad_accum_cnt=1, learning_rate=5e-6,
                 max_epochs=25,
                 model_file=os.path.join(logDir, f'BiGCN_{test_event_name}.pkl'))
         if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):

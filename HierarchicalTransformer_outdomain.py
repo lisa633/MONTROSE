@@ -62,7 +62,7 @@ class SentBert(nn.Module):
         # self.model = BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda'))
         self.model = nn.DataParallel(
             BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda')),
-            device_ids=[0],
+            device_ids=[0,1,2,3],
             #device_ids = [0]
         )
 

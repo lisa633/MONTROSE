@@ -539,16 +539,41 @@ class Covid19(MetaMCMCDataset):
         self.read_indexs:np.array = None
         
     def sort_by_timeline(self, key, temp_idxs):
-        self.data[key]['text'] = [self.data[key]['text'][idx] for idx in temp_idxs]
+        self.data[key]['sentence'] = [self.data[key]['sentence'][idx] for idx in temp_idxs]
         self.data[key]['created_at'] = [self.data[key]['created_at'][idx] for idx in temp_idxs]
-        self.data[key]['edges'] = [self.data[key]['edges'][idx] for idx in temp_idxs]
+        self.data[key]['edges'] = [self.data[key]['edges'][idx-1] for idx in temp_idxs[1:]]
+        self.data[key]['tweet_id'] = [self.data[key]['tweet_id'][idx] for idx in temp_idxs]
+        self.data[key]['reply_to'] = [self.data[key]['reply_to'][idx] for idx in temp_idxs]
+
+    def gather_posts(self, key, temp_idxs, post_fn, merge = True):
+        if merge:
+            id2idx = {t_id: idx for idx, t_id in enumerate(self.data[key]['tweet_id'])}
+            id2idx[None] = -1
+            self.data[key]['text'] = []
+            ttext = ""
+            for i in range(len(temp_idxs)):
+                if i % post_fn == 0:  # merge the fixed number of texts in a time interval
+                    if len(ttext) > 0:  # if there are data already in ttext, output it as a new instance
+                        words = self.transIrregularWord(ttext, self.seg)
+                        self.data[key]['text'].append(words)
+                        ttext = ''
+                    else:
+                        ttext = self.data[key]['sentence'][i]
+                else:
+                    ttext += " " + self.data[key]['sentence'][i]
+            # keep the last one
+            if len(ttext) > 0:
+                words = self.transIrregularWord(ttext)
+                self.data[key]['text'].append(words)
+        else:
+            self.data[key]['text'] = [self.transIrregularWord(self.data[key]['sentence'][i]) for i in temp_idxs]
 
     def dataclear(self, post_fn=1):
         print("data clear:")
-        # for key, value in tqdm(self.data.items()):
-        #     temp_idxs = np.array(self.data[key]['created_at']).argsort().tolist()
-        #     self.sort_by_timeline(key, temp_idxs)
-        #     self.gather_posts(key, temp_idxs, post_fn)
+        for key, value in tqdm(self.data.items()):
+            temp_idxs = np.array(self.data[key]['created_at']).argsort().tolist()
+            self.sort_by_timeline(key, temp_idxs)
+            self.gather_posts(key, temp_idxs, post_fn)
 
         # for key in self.data.keys():
         #     self.data_ID.append(key)
@@ -571,9 +596,11 @@ class Covid19(MetaMCMCDataset):
 
         self.data = {
             ID: {
-                'text': [],
+                'sentence': [],
                 'created_at': [],
-                'edges': []
+                'edges': [],
+                'tweet_id': [],
+                'reply_to': [],
             } for ID in self.data_ID
         }
 
@@ -592,8 +619,13 @@ class Covid19(MetaMCMCDataset):
                         print(f"The count of the error ID is {len(error_IDs)}")
                     continue
                 self.data[s[0]]['topic_label'] = topic_label
-                self.data[s[0]]['text'].append(s[4].split(' '))
+                self.data[s[0]]["tweet_id"].append(str(s[0])+str(s[2]))
+                self.data[s[0]]['sentence'].append(s[4].lower())
                 self.data[s[0]]['created_at'].append(float(s[3]))
+                if s[1] == 'None':
+                    self.data[s[0]]['reply_to'].append('null')
+                else:
+                    self.data[s[0]]['reply_to'].append(str(s[0])+str(s[1]))
                 if s[1] != 'None':
                     self.data[s[0]]['edges'].append([int(s[1]) - 1, int(s[2]) - 1])
 
@@ -649,14 +681,17 @@ class Covid19(MetaMCMCDataset):
         self.read_indexs = np.arange(len(self.data_ID))
         
 
-    def construct_graph(self, index, d_ID):
+    # def construct_graph(self, index, d_ID):
 
-        edges = self.data[d_ID]['edges']
-        src = np.array([item[0] for item in edges])
-        dst = np.array([item[1] for item in edges])
-        g_TD = dgl.graph((dst, src), num_nodes=self.data_len[index])
-        g_BU = dgl.graph((src, dst), num_nodes=self.data_len[index])
-        return g_TD, g_BU
+    #     edges = self.data[d_ID]['edges']
+    #     src = np.array([item[0] for item in edges])
+    #     print("src:",src)
+    #     dst = np.array([item[1] for item in edges])
+    #     print("dst:",dst)
+    #     print("num_nodes:", self.data_len[index])
+    #     g_TD = dgl.graph((dst, src), num_nodes=self.data_len[index])
+    #     g_BU = dgl.graph((src, dst), num_nodes=self.data_len[index])
+    #     return g_TD, g_BU
 
     def initGraph(self):
         if not hasattr(self, "g_TD"):

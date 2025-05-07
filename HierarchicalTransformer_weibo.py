@@ -44,7 +44,7 @@ from transformers.models.bert import BertConfig, BertTokenizer
 import torch, torch.nn as nn
 from typing import List, AnyStr
 from torch.utils.data import Dataset
-from Data.BiGCN_Dataloader_covid import load_data
+from Data.BiGCN_Dataloader_weibo import load_data
 from BaseModel.BiGCN_Utils.RumorDetectionBasic import RumorBaseTrainer
 import pdb
 from TrainingEnv import VirtualModel, CustomDataset, GradientReversal
@@ -1555,8 +1555,8 @@ class DgMSTF_Trainer(MetaLearningFramework):
             self.iterate += 1
 
 if __name__ == '__main__':
-    data_dir1 = r"../../autodl-tmp/data/Twitter/old"
-    data_dir2 = r"../../autodl-tmp/data/Twitter/covid19"
+    data_dir1 = r"../../autodl-tmp/data/Weibo/old"
+    data_dir2 = r"../../autodl-tmp/data/Weibo/covid19"
     os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2,3" 
 
     events_list = ['old', 'covid19']
@@ -1620,24 +1620,24 @@ if __name__ == '__main__':
     # print("\n\n===========%s Train===========\n\n" % te.data[te.data_ID[0]]['event'])
     print("\n\n===========%s Out Domain Train===========\n\n" % test_event_name)
 
-    bertPath = r"../../autodl-tmp/bert_en"
+    bertPath = r"../../autodl-tmp/bert-base-chinese"
     model = obtain_Transformer(bertPath)
     source_domain.initGraph()
     dev_eval = TransformerEvaluator(val_set, batch_size=20)
     te_eval = TransformerEvaluator(test_set, batch_size=20)
     trainer = MCMCBiGCNTrainer(logDir, None, model_rename=False, beam_K=3, batch_dir=f"./aug_dir4")
-    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):
-        model.load_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")
+    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/Weibo/{test_event_name}/BiGCN_{test_event_name}.pkl"):
+        model.load_model(f"../../autodl-tmp/pkl/GpDANN/Weibo/{test_event_name}/BiGCN_{test_event_name}.pkl")
     else:
-        trainer.fit(model, source_domain, dev_eval, te_eval, batch_size=32, grad_accum_cnt=1, learning_rate=5e-6,
+        trainer.fit(model, source_domain, dev_eval, te_eval, batch_size=28, grad_accum_cnt=1, learning_rate=5e-6,
                 max_epochs=25,
                 model_file=os.path.join(logDir, f'BiGCN_{test_event_name}.pkl'))
-        if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl"):
-            model.load_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")
+        if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/Weibo/{test_event_name}/BiGCN_{test_event_name}.pkl"):
+            model.load_model(f"../../autodl-tmp/pkl/GpDANN/Weibo/{test_event_name}/BiGCN_{test_event_name}.pkl")
         else:
-            model.save_model(f"../../autodl-tmp/pkl/GpDANN/{test_event_name}/BiGCN_{test_event_name}.pkl")    
+            model.save_model(f"../../autodl-tmp/pkl/GpDANN/Weibo/{test_event_name}/BiGCN_{test_event_name}.pkl")    
 
-    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=2,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=32, epsilon_ball=8e-7,gStep=5, Lambda=0.1, G_lr = 8e-7, D_lr=2e-4, valid_every=10, dStep=10) 
+    trainer = DgMSTF_Trainer(random_seed=10086, log_dir=logDir, suffix=f"{test_event_name}_FS{fewShotCnt}",model_file=f"../../autodl-tmp/pkl/GpDANN/Weibo/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl", domain_num=2,class_num=2, temperature=0.05, learning_rate=5e-5, batch_size=20, epsilon_ball=8e-7,gStep=5, Lambda=0.1, G_lr = 8e-7, D_lr=2e-4, valid_every=10, dStep=10) 
     bert_config = BertConfig.from_pretrained(bertPath,num_labels = 2)
     model_device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     discriminator = DomainDiscriminator(hidden_size=bert_config.hidden_size,
@@ -1646,14 +1646,14 @@ if __name__ == '__main__':
                                         domain_num=2)
     trainer.domain_discriminator = discriminator
     print("being domain discriminate!")
-    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl"):
+    if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/Weibo/DomainDiscriminator_{test_event_name}.pkl"):
         trainer.domain_discriminator.load_state_dict(
-            torch.load(f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
+            torch.load(f"../../autodl-tmp/pkl/GpDANN/Weibo/DomainDiscriminator_{test_event_name}.pkl")
         )
     else:
         for epoch in range(2):
             trainer.optimizeDiscriminator(model, source_domain, unlabeled_target, max_step=500)
-        torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/DomainDiscriminator_{test_event_name}.pkl")
+        torch.save(trainer.domain_discriminator.state_dict(), f"../../autodl-tmp/pkl/GpDANN/Weibo/DomainDiscriminator_{test_event_name}.pkl")
     trainer.Training(model, source_domain, unlabeled_target, test_set, dev_eval, te_eval, max_iterate=100) 
     
 #     if os.path.exists(f"../../autodl-tmp/pkl/GpDANN/DgMSTF_{test_event_name}_FS{fewShotCnt}.pkl"):

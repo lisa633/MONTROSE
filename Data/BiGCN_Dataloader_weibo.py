@@ -4,6 +4,7 @@ import pickle
 import random
 import re
 import sys
+import pkuseg
 
 import dgl
 import nltk
@@ -537,6 +538,19 @@ class Covid19(MetaMCMCDataset):
         self.instance_weights = torch.ones([len(self.data_len)], dtype=torch.float32, device=torch.device('cuda:0'))
         self._confidence, self._entrophy = None, None
         self.read_indexs:np.array = None
+
+    def lineClear(self, line):
+        line.lower()
+        line = re.sub("@[^ :]*", " @ ", line)
+        line = re.sub("#[^ ]*#", " # ", line)
+        line = re.sub("http(.?)://[^ ]*", " url ", line)
+        return line
+
+    def transIrregularWord(self, line):
+        if not line:
+            return ''
+        line = self.lineClear(line)
+        return self.seg.cut(line)
         
     def sort_by_timeline(self, key, temp_idxs):
         self.data[key]['sentence'] = [self.data[key]['sentence'][idx] for idx in temp_idxs]
@@ -554,7 +568,7 @@ class Covid19(MetaMCMCDataset):
             for i in range(len(temp_idxs)):
                 if i % post_fn == 0:  # merge the fixed number of texts in a time interval
                     if len(ttext) > 0:  # if there are data already in ttext, output it as a new instance
-                        words = self.transIrregularWord(ttext, self.seg)
+                        words = self.transIrregularWord(ttext)
                         self.data[key]['text'].append(words)
                         ttext = ''
                     else:
@@ -587,8 +601,8 @@ class Covid19(MetaMCMCDataset):
         for ID in self.data_ID:
             self.data_len.append(len(self.data[ID]['text']))
 
-    def load_data(self, data_dir):
-        with open(f"{data_dir}/Twitter_label_all.txt") as fr:
+    def dataloader(self, data_dir):
+        with open(f"{data_dir}/weibo_covid19_label.txt") as fr:
             lines = [line.strip('\n') for line in fr]
         items = [line.split('\t') for line in lines]
         self.data_ID = [item[0] for item in items]
@@ -603,15 +617,11 @@ class Covid19(MetaMCMCDataset):
                 'reply_to': [],
             } for ID in self.data_ID
         }
-        with open (f"{data_dir}/Twitter_data_all.txt") as fr:
-            if data_dir.split("/")[-1] == "old":
-                topic_label = 0
-            else:
-                topic_label = 1
+        with open (f"{data_dir}/weibo_covid19_data.txt") as fr:
             new_data = []
             for line in fr:
                 ss = line.strip('\n').split('\t')
-                if int(ss[2]) <= 50:
+                if int(ss[2]) <= 20:
                     new_data.append(line)
 
         error_IDs = []
@@ -624,7 +634,7 @@ class Covid19(MetaMCMCDataset):
                     print(f" WARNING : ID '{s[0]}' does not exists in the label file")
                     print(f"The count of the error ID is {len(error_IDs)}")
                 continue
-            self.data[s[0]]['topic_label'] = topic_label
+            self.data[s[0]]['topic_label'] = 1
             self.data[s[0]]["tweet_id"].append(str(s[0])+str(s[2]))
             self.data[s[0]]['sentence'].append(s[4].lower())
             self.data[s[0]]['created_at'].append(float(s[3]))
@@ -743,6 +753,202 @@ class Covid19(MetaMCMCDataset):
                      topic_label=self.data[self.data_ID[index]]['topic_label'], text=seq,
                     data_len=self.data_len[index], data_confidence = self._confidence, data_entrophy = self._entrophy,weight=weight, data_y=self.data_y[index], index=index)
 
+class Weibo(MetaMCMCDataset):
+    def __init__(self, max_seq_len=20):
+        super(Weibo, self).__init__()
+        userdic = ['[', ']', '。', ',', '，', '{', '}', '(', ')', '!', '！', '~', '～']
+        self.seg = pkuseg.pkuseg(user_dict=userdic)
+        self.instance_weights = torch.ones([len(self.data_len)], dtype=torch.float32, device=torch.device('cuda:0'))
+        self._confidence, self._entrophy = None, None
+        self.read_indexs:np.array = None
+        self.max_seq_len = max_seq_len        
+
+    def lineClear(self, line):
+        line.lower()
+        line = re.sub("@[^ :]*", " @ ", line)
+        line = re.sub("#[^ ]*#", " # ", line)
+        line = re.sub("http(.?)://[^ ]*", " url ", line)
+        return line
+
+    def transIrregularWord(self, line):
+        if not line:
+            return ''
+        line = self.lineClear(line)
+        return self.seg.cut(line)
+    
+    def sort_by_timeline(self, key, temp_idxs):
+        self.data[key]['sentence'] = [self.data[key]['sentence'][idx] for idx in temp_idxs]
+        self.data[key]['created_at'] = [self.data[key]['created_at'][idx] for idx in temp_idxs]
+        self.data[key]['tweet_id'] = [self.data[key]['tweet_id'][idx] for idx in temp_idxs]
+        self.data[key]['reply_to'] = [self.data[key]['reply_to'][idx] for idx in temp_idxs]
+
+    def gather_posts(self, key, temp_idxs, post_fn, merge = True):
+        if merge:
+            id2idx = {t_id: idx for idx, t_id in enumerate(self.data[key]['tweet_id'])}
+            id2idx[None] = -1
+            self.data[key]['text'] = []
+            ttext = ""
+            for i in range(len(temp_idxs)):
+                if i % post_fn == 0:  # merge the fixed number of texts in a time interval
+                    if len(ttext) > 0:  # if there are data already in ttext, output it as a new instance
+                        words = self.transIrregularWord(ttext)
+                        self.data[key]['text'].append(words)
+                        ttext = ''
+                    else:
+                        ttext = self.data[key]['sentence'][i]
+                else:
+                    ttext += " " + self.data[key]['sentence'][i]
+            # keep the last one
+            if len(ttext) > 0:
+                words = self.transIrregularWord(ttext)
+                self.data[key]['text'].append(words)
+        else:
+            self.data[key]['text'] = [self.transIrregularWord(self.data[key]['sentence'][i]) for i in temp_idxs]
+
+    def dataclear(self, post_fn=1):
+        print("data clear:")
+        for key, value in tqdm(self.data.items()):
+            temp_idxs = np.array(self.data[key]['created_at']).argsort().tolist()
+            self.sort_by_timeline(key, temp_idxs)
+            self.gather_posts(key, temp_idxs, post_fn)
+
+        # for key in self.data.keys():
+        #     self.data_ID.append(key)
+        self.data_ID = random.sample(self.data_ID, len(self.data_ID))  # shuffle the data id
+        self._confidence = torch.ones(len(self.data_ID),device=torch.device('cuda'))
+        self._entrophy = torch.zeros(len(self.data_ID),device=torch.device('cuda'))
+        self.read_indexs = np.arange(len(self.data_ID))
+#         print(self.read_indexs)
+        self.instance_weights = torch.ones([len(self.data_ID)], dtype=torch.float32,device=torch.device('cuda')) 
+        self.data_len = []
+        for ID in self.data_ID:
+            self.data_len.append(len(self.data[ID]['text']))
+
+    def read_json(self, fname, ID, event_data=None):
+        if event_data is None:
+            with open(fname) as fr:
+                event_data = json.load(fr)
+        texts = [tweet['original_text'] for tweet in event_data]
+        created_at = [tweet['t'] for tweet in event_data]
+        IDs = [tweet['id'] for tweet in event_data]
+        parents = [tweet['parent'] for tweet in event_data]
+        idxs = np.array(created_at).argsort().tolist()
+        if len(idxs)>self.max_seq_len:
+            idxs = idxs[:self.max_seq_len]
+        self.data[ID] = {
+            'sentence':[texts[idx] for idx in idxs],
+            'created_at':[created_at[idx] for idx in idxs],
+            "tweet_id":[IDs[idx] for idx in idxs],
+            "reply_to": [parents[idx] for idx in idxs]
+         }
+        # self.data_len.append(min(len(texts), self.max_seq_len))
+
+    def dataloader(self, data_dir):
+        with open (f"{data_dir}/Weibo.txt") as fr:
+            lines = [line.strip('\n') for line in fr]
+        items = [line.split('\t') for line in lines]
+        self.data_y = [[0.0, 1.0] if item[1][6:] == '1' else [1.0, 0.0] for item in items]
+        self.data_ID = [item[0][4:] for item in items]
+        topic_label = 0
+        for idx, ID in enumerate(tqdm(self.data_ID)):
+            fname = "%s/%s/%s.json"%(data_dir, "Weibo", ID)
+            self.read_json(fname, ID)
+            self.data[ID]['topic_label'] = topic_label
+
+        self.dataclear()
+
+    def split(self, percent=[0.5, 1.0]):
+        data_size = len(self.data_ID)
+        start_end = [int(item * data_size) for item in percent]
+        start_end.insert(0, 0)
+        new_idxs = list(random.sample(list(range(data_size)), data_size))
+
+        # print("new_idxs", new_idxs)
+#         print("new_idxs_len", len(new_idxs))
+
+        rst = [self.__class__() for _ in percent]
+        for i in range(len(percent)):
+            real_idxs = [self.read_indexs[idx] for idx in new_idxs[start_end[i]:start_end[i + 1]]]
+            rst[i].data_ID = [self.data_ID[idx] for idx in new_idxs[start_end[i]:start_end[i + 1]]]
+            rst[i].data_len = [self.data_len[idx] for idx in new_idxs[start_end[i]:start_end[i + 1]]]
+            rst[i].data_y = [self.data_y[idx] for idx in new_idxs[start_end[i]:start_end[i + 1]]]
+            rst[i].data = {ID: self.data[ID] for ID in rst[i].data_ID}
+            rst[i].instance_weights = torch.ones([len(rst[i].data_ID)], dtype=torch.float32,
+                                                 device=torch.device('cuda'))
+            rst[i]._confidence = torch.ones([len(rst[i].data_ID)], dtype=torch.float32,
+                                                 device=torch.device('cuda'))
+            rst[i]._entrophy= torch.zeros([len(rst[i].data_ID)], dtype=torch.float32,
+                                                 device=torch.device('cuda'))
+
+            rst[i].read_indexs = np.arange(len(real_idxs))
+        return rst
+
+    def Caches_Data(self, data_prefix="../data/data"):
+        data_prefix=data_prefix+"_out"
+        data_dic  = "%s_dict.txt" % data_prefix
+        y_npy = "%s_y.npy" % data_prefix
+        id_npy = "%s_ID.npy" % data_prefix
+        len_npy = "%s_len.npy" % data_prefix
+        with open(data_dic, "wb") as fw:
+            pickle.dump(self.data, fw, protocol=pickle.HIGHEST_PROTOCOL)
+        np.save(id_npy, np.array(self.data_ID))
+        np.save(y_npy, np.array(self.data_y))
+        np.save(len_npy, np.array(self.data_len))
+        print("data is caches")
+
+    def load_data_fast(self, data_prefix="../data/train", min_len=-1):
+        data_prefix=data_prefix+"_out"
+        super().load_data_fast(data_prefix)
+        self.instance_weights = torch.ones([len(self.data_ID)], dtype=torch.float32, device=torch.device('cuda:0'))
+        self._confidence = torch.ones(len(self.data_ID),device=torch.device('cuda'))
+        self._entrophy = torch.zeros(len(self.data_ID),device=torch.device('cuda'))
+        self.read_indexs = np.arange(len(self.data_ID))
+
+    def initGraph(self):
+        if not hasattr(self, "g_TD"):
+            self.g_TD = {}
+        if not hasattr(self, "g_BU"):
+            self.g_BU = {}
+
+        for index, d_ID in tqdm(enumerate(self.data_ID)):
+            if d_ID in self.g_TD and d_ID in self.g_BU:
+                pass
+            else:
+                g_TD, g_BU = self.construct_graph(index, d_ID)
+                self.g_TD[d_ID] = g_TD
+                self.g_BU[d_ID] = g_BU
+
+    def __getitem__(self, index):
+        d_ID = self.data_ID[index]
+        if not hasattr(self, "g_TD"):
+            self.g_TD = {}
+        if not hasattr(self, "g_BU"):
+            self.g_BU = {}
+        if not hasattr(self, "lemma_text"):
+            self.lemma_text = {}
+
+        if d_ID in self.g_TD and d_ID in self.g_BU:
+            g_TD, g_BU = self.g_TD[d_ID], self.g_BU[d_ID]
+        else:
+            g_TD, g_BU = self.construct_graph(index, d_ID)
+            self.g_TD[d_ID] = g_TD
+            self.g_BU[d_ID] = g_BU
+
+        if index in self.lemma_text:
+            seq = self.lemma_text[index]
+        else:
+            seq = [" ".join(self.lemma(self.data[self.data_ID[index]]['text'][j])) for j in
+                   range(self.data_len[index])]
+            self.lemma_text[index] = seq
+
+        assert len(seq) == g_TD.num_nodes() and len(seq) == g_TD.num_nodes()
+
+        weight = self.instance_weights[index]
+        return Data(g_TD=dgl.add_self_loop(g_TD), g_BU=dgl.add_self_loop(g_BU),
+                     topic_label=self.data[self.data_ID[index]]['topic_label'], text=seq,
+                    data_len=self.data_len[index], data_confidence = self._confidence, data_entrophy = self._entrophy,weight=weight, data_y=self.data_y[index], index=index)
+
+
 class FastTwitterDataset(BiGCNTwitterSet, CustomDataset):
     def __init__(self, batch_size=20):
         super(FastTwitterDataset, self).__init__(batch_size=batch_size)
@@ -843,34 +1049,19 @@ def load_events(events_list: List):
     data_list = []
     for event_dir in events_list:
         print(event_dir.split("/")[-1])
-        if event_dir.split("/")[-1] == "old" or event_dir.split("/")[-1] == "covid19":
+        if event_dir.split("/")[-1] == "covid19":
             dataset = Covid19()
             try:
                 dataset.load_data_fast(event_dir)
             except:  # if no caches
-                dataset.load_data(event_dir)
-                dataset.Caches_Data(event_dir)
-
-        elif event_dir.split("/")[-1] == "twitter15":
-            dataset = Twitter15()
-            try:
-                dataset.load_data_fast(event_dir)
-            except:  # if no caches
-                dataset.load_data(event_dir)
-                dataset.Caches_Data(event_dir)
-        elif event_dir.split("/")[-1] == "twitter16":
-            dataset = Twitter16()
-            try:
-                dataset.load_data_fast(event_dir)
-            except:  # if no caches
-                dataset.load_data(event_dir)
+                dataset.dataloader(event_dir)
                 dataset.Caches_Data(event_dir)
         else:
-            dataset = MetaMCMCDataset()
+            dataset = Weibo()
             try:
                 dataset.load_data_fast(event_dir)
             except:  # if no caches
-                dataset.load_event_list([event_dir])
+                dataset.dataloader(event_dir)
                 dataset.Caches_Data(event_dir)
         data_list.append(dataset)
 

@@ -62,7 +62,7 @@ class SentBert(nn.Module):
         # self.model = BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda'))
         self.model = nn.DataParallel(
             BertModel.from_pretrained(bertPath, config=self.bert_config).to(torch.device('cuda')),
-            device_ids=[0,1,2,3]
+            device_ids=[0,1,2,3,4,5,6,7]
             #device_ids = [0]
         )
 
@@ -1557,7 +1557,7 @@ class DgMSTF_Trainer(MetaLearningFramework):
 if __name__ == '__main__':
     data_dir1 = r"../../autodl-tmp/data/Weibo/old"
     data_dir2 = r"../../autodl-tmp/data/Weibo/covid19"
-    os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2,3" 
+    os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2,3,4,5,6,7" 
 
     events_list = ['old', 'covid19']
     # for domain_ID in range(5):

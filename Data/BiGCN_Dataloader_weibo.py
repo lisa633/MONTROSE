@@ -583,6 +583,13 @@ class Covid19(MetaMCMCDataset):
             self.data[key]['text'] = [self.transIrregularWord(self.data[key]['sentence'][i]) for i in temp_idxs]
 
     def dataclear(self, post_fn=1):
+        label_dict = dict()
+        with open(f"/root/autodl-tmp/data/Weibo/covid19/weibo_covid19_label.txt") as fr:
+            lines = [line.strip('\n') for line in fr]
+        items = [line.split('\t') for line in lines]
+        for item in items:
+            label_dict[item[0]]=item[1]
+        
         print("data clear:")
         for key, value in tqdm(self.data.items()):
             temp_idxs = np.array(self.data[key]['created_at']).argsort().tolist()
@@ -600,13 +607,17 @@ class Covid19(MetaMCMCDataset):
         self.data_len = []
         for ID in self.data_ID:
             self.data_len.append(len(self.data[ID]['text']))
+            if label_dict[ID] == '1':
+                self.data_y.append([0.0, 1.0])
+            else:
+                self.data_y.append([1.0, 0.0])
 
     def dataloader(self, data_dir):
         with open(f"{data_dir}/weibo_covid19_label.txt") as fr:
             lines = [line.strip('\n') for line in fr]
         items = [line.split('\t') for line in lines]
         self.data_ID = [item[0] for item in items]
-        self.data_y = [[0.0, 1.0] if item[1] == '1' else [1.0, 0.0] for item in items]
+#         self.data_y = [[0.0, 1.0] if item[1] == '1' else [1.0, 0.0] for item in items]
 
         self.data = {
             ID: {
@@ -742,9 +753,10 @@ class Covid19(MetaMCMCDataset):
         if index in self.lemma_text:
             seq = self.lemma_text[index]
         else:
-            seq = [" ".join(self.lemma(self.data[self.data_ID[index]]['text'][j])) for j in
+            seq = ["".join(self.lemma(self.data[self.data_ID[index]]['text'][j])) for j in
                    range(self.data_len[index])]
             self.lemma_text[index] = seq
+            
 
         assert len(seq) == g_TD.num_nodes() and len(seq) == g_TD.num_nodes()
 
@@ -806,6 +818,12 @@ class Weibo(MetaMCMCDataset):
             self.data[key]['text'] = [self.transIrregularWord(self.data[key]['sentence'][i]) for i in temp_idxs]
 
     def dataclear(self, post_fn=1):
+        label_dict = dict()
+        with open(f"/root/autodl-tmp/data/Weibo/old/Weibo.txt") as fr:
+            lines = [line.strip('\n') for line in fr]
+        items = [line.split('\t') for line in lines]
+        for item in items:
+            label_dict[item[0][4:]]=item[1][6:]
         print("data clear:")
         for key, value in tqdm(self.data.items()):
             temp_idxs = np.array(self.data[key]['created_at']).argsort().tolist()
@@ -823,6 +841,10 @@ class Weibo(MetaMCMCDataset):
         self.data_len = []
         for ID in self.data_ID:
             self.data_len.append(len(self.data[ID]['text']))
+            if label_dict[ID] == '1':
+                self.data_y.append([0.0, 1.0])
+            else:
+                self.data_y.append([1.0, 0.0])
 
     def read_json(self, fname, ID, event_data=None):
         if event_data is None:
@@ -847,7 +869,7 @@ class Weibo(MetaMCMCDataset):
         with open (f"{data_dir}/Weibo.txt") as fr:
             lines = [line.strip('\n') for line in fr]
         items = [line.split('\t') for line in lines]
-        self.data_y = [[0.0, 1.0] if item[1][6:] == '1' else [1.0, 0.0] for item in items]
+#         self.data_y = [[0.0, 1.0] if item[1][6:] == '1' else [1.0, 0.0] for item in items]
         self.data_ID = [item[0][4:] for item in items]
         topic_label = 0
         for idx, ID in enumerate(tqdm(self.data_ID)):
@@ -937,7 +959,7 @@ class Weibo(MetaMCMCDataset):
         if index in self.lemma_text:
             seq = self.lemma_text[index]
         else:
-            seq = [" ".join(self.lemma(self.data[self.data_ID[index]]['text'][j])) for j in
+            seq = ["".join(self.lemma(self.data[self.data_ID[index]]['text'][j])) for j in
                    range(self.data_len[index])]
             self.lemma_text[index] = seq
 

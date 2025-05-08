@@ -568,7 +568,14 @@ class Covid19(MetaMCMCDataset):
         else:
             self.data[key]['text'] = [self.transIrregularWord(self.data[key]['sentence'][i]) for i in temp_idxs]
 
-    def dataclear(self, post_fn=1):
+    def dataclear(self, data_dir, post_fn=1):
+        label_dict = dict()
+        with open(f"{data_dir}/Twitter_label_all.txt") as fr:
+            lines = [line.strip('\n') for line in fr]
+        items = [line.split('\t') for line in lines]
+        for item in items:
+            label_dict[item[0]]=item[1]
+        
         print("data clear:")
         for key, value in tqdm(self.data.items()):
             temp_idxs = np.array(self.data[key]['created_at']).argsort().tolist()
@@ -586,13 +593,17 @@ class Covid19(MetaMCMCDataset):
         self.data_len = []
         for ID in self.data_ID:
             self.data_len.append(len(self.data[ID]['text']))
-
+            if label_dict[ID] == '1':
+                self.data_y.append([0.0, 1.0])
+            else:
+                self.data_y.append([1.0, 0.0])
+                
     def load_data(self, data_dir):
         with open(f"{data_dir}/Twitter_label_all.txt") as fr:
             lines = [line.strip('\n') for line in fr]
         items = [line.split('\t') for line in lines]
         self.data_ID = [item[0] for item in items]
-        self.data_y = [[0.0, 1.0] if item[1] == '1' else [1.0, 0.0] for item in items]
+#         self.data_y = [[0.0, 1.0] if item[1] == '1' else [1.0, 0.0] for item in items]
 
         self.data = {
             ID: {
@@ -635,7 +646,7 @@ class Covid19(MetaMCMCDataset):
             if s[1] != 'None':
                 self.data[s[0]]['edges'].append([int(s[1]) - 1, int(s[2]) - 1])
 
-        self.dataclear()
+        self.dataclear(data_dir)
 
 
 

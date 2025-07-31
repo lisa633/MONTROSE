@@ -14,7 +14,7 @@ from BaseModel.modeling_bert import *
 from transformers.models.bert import BertConfig, BertTokenizer
 
 client = OpenAI(
-            api_key="sk-65734579fab943f48234f366e64ad181", 
+            api_key="xxx", 
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         )
 
